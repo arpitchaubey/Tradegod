@@ -1,0 +1,34 @@
+services:
+  # Backend API + Telegram Bot Service
+  - type: web
+    name: tradegod-backend
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: DEFAULT_DATA_PROVIDER
+        value: twelvedata
+      - key: TWELVE_DATA_API_KEY
+        sync: false
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_CHAT_ID
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: DATABASE_URL
+        value: sqlite+aiosqlite:///./tradegod.db
+      - key: DEFAULT_SYMBOL
+        value: XAU/USD
+      - key: DEFAULT_RISK_PERCENT
+        value: "1.0"
+      - key: MAX_DAILY_LOSS_PERCENT
+        value: "2.0"
+      - key: MAX_TRADES_PER_DAY
+        value: "5"
+    disk:
+      name: tradegod-db-data
+      mountPath: /app/data
+      sizeGB: 1
