@@ -137,7 +137,7 @@ export default function StrategyBuilder({ onStrategySaved }: StrategyBuilderProp
     }
   };
 
-  const handleActivateSavedStrategy = async (name: str) => {
+  const handleActivateSavedStrategy = async (name: string) => {
     setLoading(true);
     setSuccessMsg("");
     setErrorMsg("");
