@@ -1,0 +1,143 @@
+================================================================================
+                    TRADEGOD AI TRADING BOT — HOW IT WORKS
+================================================================================
+
+1. EXECUTIVE SUMMARY & OVERVIEW
+--------------------------------------------------------------------------------
+TradeGod AI is an automated, multi-timeframe algorithmic trading signal & 
+risk management engine built primarily for XAU/USD (Gold) and extensible to Forex,
+Crypto, and Stock Indices.
+
+Key Highlights:
+• Natural Language Strategy Parser: Describe custom strategies in plain English.
+• Persistent Strategy Engine: Saves strategies to SQLite so custom rules remain
+  active across tab switches and server restarts.
+• Multi-Timeframe Analysis: Combines 1H (Trend), 15M (Setup), and 5M (Entry).
+• Deterministic Signal Engine: EMA Trend, RSI Momentum, Resistance/Support 
+  Breakouts, and Candle Close Confirmations.
+• Automated Risk Control: Calculates Stop-Loss, Take-Profit 1 & 2, Risk/Reward (1:2+),
+  and Lot Size calculation based on risk % per trade.
+• Real-time Telegram Alerts: Broadcasts signals and strategy updates instantly.
+• Web Dashboard: Built with Next.js & Lightweight Charts for live interactive analysis.
+
+
+2. SYSTEM ARCHITECTURE & COMPONENTS
+--------------------------------------------------------------------------------
+Architecture Diagram:
+
+  +-----------------------+     +-----------------------+
+  |  Twelve Data / Yahoo  | --> | Candle Buffer &       |
+  |  Market Data API      |     | Normalizer Engine     |
+  +-----------------------+     +-----------+-----------+
+                                            |
+                                            v
+  +-----------------------+     +-----------------------+
+  |  Natural Language     | --> | Deterministic         |
+  |  Strategy Parser      |     | Strategy Engine       |
+  +-----------------------+     +-----------+-----------+
+                                            |
+                                            v
+  +-----------------------+     +-----------------------+
+  |  SQLite Database      | <-- | Risk & Position Size  |
+  |  (tradegod.db)        |     | Calculator            |
+  +-----------------------+     +-----------+-----------+
+                                            |
+                                            v
+                                +-----------+-----------+
+                                |                       |
+                                v                       v
+                      +-------------------+   +-------------------+
+                      | Telegram Alert    |   | Next.js Live Web  |
+                      | Broadcast Bot     |   | Dashboard         |
+                      +-------------------+   +-------------------+
+
+
+3. STEP-BY-STEP EXECUTION FLOW
+--------------------------------------------------------------------------------
+Step 1: Market Data Ingestion
+  • Historical and live market OHLCV candles for XAU/USD (5M, 15M, 1H) are fetched via 
+    Twelve Data REST API with automatic failover to Yahoo Finance and synthetic generators.
+  • Candles are normalized into uniform timestamps and cached in CandleBufferManager.
+
+Step 2: Strategy Parsing & Database Persistence
+  • Users enter plain English strategy prompts (e.g. "Buy XAU/USD on 5M when 
+    20 EMA > 50 EMA and RSI > 55 with 1:2 Risk/Reward").
+  • The Parser converts English into structured rule sets (indicator comparisons, 
+    thresholds, breakout levels, candle close rules).
+  • The Active Strategy Store saves the definition into the SQLite database (`strategies` table) 
+    and sets `is_active = True`.
+
+Step 3: Signal Evaluation Engine
+  • StrategyEngine evaluates multi-timeframe candles against the active rules:
+    - Rule 1 (Trend): 1H Fast EMA (20) > Slow EMA (50)
+    - Rule 2 (Setup): 5M Entry EMA (20) > EMA (50)
+    - Rule 3 (Momentum): 5M RSI > 55
+    - Rule 4 (Breakout): Price breaks key Resistance
+    - Rule 5 (Confirmation): Candle closes above Breakout Level
+  • If ALL rules pass, a BUY or SELL setup is triggered.
+
+Step 4: Risk Management & Lot Sizing
+  • RiskManager sets Stop Loss below swing structure/ATR and calculates 
+    Take Profit 1 (1:1 R:R) and Take Profit 2 (1:2 R:R).
+  • Calculates position size in Lots based on user account balance and risk percentage 
+    (e.g., 1.0% risk per trade).
+
+Step 5: Broadcast & Position Logging
+  • Signals are logged to `signal_logs` and paper trading `positions` tables.
+  • Instant Telegram notification is sent containing Entry, SL, TP1, TP2, R:R ratio, 
+    and strategy rationale.
+
+
+4. DATABASE SCHEMA (SQLite — tradegod.db)
+--------------------------------------------------------------------------------
+• `strategies`: Stores user strategies (id, name, raw_prompt, rules_json, is_active, created_at).
+• `market_candles`: Cached historical OHLCV candles.
+• `signal_logs`: Generated trading alerts & confirmation logs.
+• `positions`: Open/Closed paper trading & broker execution positions.
+• `broker_accounts`: Balance, Equity, Margin Used, Free Margin.
+• `execution_logs`: System and audit events.
+
+
+5. REST API ENDPOINTS (FastAPI Backend — Port 8000)
+--------------------------------------------------------------------------------
+Market & Data:
+  GET /api/market/symbols      - List supported trading pairs
+  GET /api/market/chart-info   - Current active chart metadata & last price
+  GET /api/market/candles      - Fetch historical OHLCV candles
+
+Strategy Engine:
+  GET  /api/strategy/current   - Fetch currently active strategy from database
+  GET  /api/strategy/list      - List all saved user strategies from library
+  POST /api/strategy/parse     - Parse English prompt, set active & persist to DB
+  POST /api/strategy/save      - Save strategy to library under custom name
+  POST /api/strategy/activate/{name} - Activate a saved strategy from library
+  POST /api/strategy/evaluate  - Evaluate live candles against active strategy
+
+Signals & Execution:
+  POST /api/signals/generate   - Trigger manual signal evaluation & generation
+  GET  /api/signals/stats      - Signal history & win-rate metrics
+  GET  /api/execution/positions - List open/closed paper trading positions
+  POST /api/backtest/run       - Execute historical strategy backtest
+
+
+6. HOW TO RUN THE BOT
+--------------------------------------------------------------------------------
+Prerequisites: Python 3.10+, Node.js 18+
+
+1. Backend (FastAPI Server):
+   Open terminal in project root directory and run:
+     python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
+
+   API Documentation (Swagger UI):
+     http://127.0.0.1:8000/docs
+
+2. Frontend (Next.js Dashboard):
+   Open terminal in `frontend` directory and run:
+     npm run dev
+
+   Access Dashboard in Browser:
+     http://localhost:3000
+
+================================================================================
+                             TRADEGOD AI ENGINE v1.0
+================================================================================

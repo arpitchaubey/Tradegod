@@ -1,0 +1,14 @@
+start - Start TradeGod AI Bot & receive welcome briefing
+help - Show list of available commands & usage guide
+status - View current market price, ADX trend strength, regime & engine status
+analyze - Run instant signal analysis pipeline for active symbol
+symbol - View or switch active target symbol (e.g. /symbol XAU/USD)
+symbols - List all supported trading instruments & asset categories
+positions - View active open paper & broker trade positions with live PnL
+closeall - Emergency close all active paper & broker trade positions
+stop - Stop active trading execution engine & halt auto-trading
+killswitch - Toggle emergency kill-switch to halt trading immediately
+mode - Switch execution mode (PAPER_TRADING, OANDA, MT5, DISABLED)
+nearmisses - View recent high-confidence near-miss strategy evaluations
+backtest - Run 200-candle backtest simulation on target symbol
+strategy - Display current active strategy rules & parameters
