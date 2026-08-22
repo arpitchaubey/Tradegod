@@ -82,7 +82,12 @@ def test_execution_api_routes():
     assert "is_blackout_active" in response_news.json()
 
 def test_strategy_parse_api():
-    response = client.post("/api/strategy/parse", json={"text": "Buy XAU/USD when EMA20 > EMA50 and RSI > 55 with 1:2 R:R"})
+    # Register & Login test user for auth token
+    reg = client.post("/api/auth/register", json={"email": "test_parse@tradegod.ai", "password": "password123", "full_name": "Test Parser"})
+    token = reg.json()["token"] if reg.status_code == 200 else client.post("/api/auth/login", json={"email": "test_parse@tradegod.ai", "password": "password123"}).json()["token"]
+    
+    headers = {"Authorization": f"Bearer {token}"}
+    response = client.post("/api/strategy/parse", json={"text": "Buy XAU/USD when EMA20 > EMA50 and RSI > 55 with 1:2 R:R"}, headers=headers)
     assert response.status_code == 200
     data = response.json()
     assert data["symbol"] == "XAU/USD"

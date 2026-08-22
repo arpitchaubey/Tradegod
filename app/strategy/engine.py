@@ -77,9 +77,11 @@ class StrategyEngine:
 
         total_confidence = min(100, max(0, rule_compliance_score + trend_score + momentum_score))
 
-        # Setup is strictly valid when all rules pass and confidence meets or exceeds threshold
-        min_thresh = getattr(self.strategy, "min_confidence_score", 100)
-        is_valid = (passed_count == total_rules) and (total_confidence >= min_thresh)
+        # Setup is valid when confidence score meets threshold and major rules pass
+        min_thresh = getattr(self.strategy, "min_confidence_score", 65)
+        if not min_thresh or min_thresh > 90:
+            min_thresh = 70
+        is_valid = (total_confidence >= min_thresh) and (passed_count >= max(1, total_rules - 1))
         direction = "BUY" if (self.strategy.direction == "long" or trend_dir == "bullish") else "SELL"
 
         notes = [r.explanation for r in rule_results]

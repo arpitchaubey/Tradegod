@@ -98,12 +98,15 @@ class BacktestEngine:
 
             # 2. Check for New Entry Setup if not in trade
             if not in_trade:
-                from app.data.normalizer import resample_candles
-                eval_sub_dfs = {
-                    "5m": sub_df,
-                    "15m": resample_candles(sub_df, "15m") if len(sub_df) >= 15 else sub_df,
-                    "1h": resample_candles(sub_df, "1h") if len(sub_df) >= 60 else sub_df
-                }
+                cur_ts = current_candle["timestamp"]
+                eval_sub_dfs = {}
+                for tf_key, tf_df_item in tf_dfs.items():
+                    if "timestamp" in tf_df_item.columns:
+                        sliced_df = tf_df_item[tf_df_item["timestamp"] <= cur_ts]
+                        eval_sub_dfs[tf_key] = sliced_df if len(sliced_df) >= 20 else tf_df_item
+                    else:
+                        eval_sub_dfs[tf_key] = tf_df_item
+
                 eval_res = self.strategy_engine.evaluate(eval_sub_dfs)
 
                 if eval_res.is_valid_setup:
