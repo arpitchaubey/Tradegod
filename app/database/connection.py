@@ -76,12 +76,22 @@ async def seed_initial_data(session: AsyncSession):
         logger.warning(f"Initial data seeding notice: {e}")
 
 async def init_db():
-    """Initializes database tables and seeds default data on startup."""
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-
-    async with AsyncSessionLocal() as session:
-        await seed_initial_data(session)
+    """Initializes database tables and seeds default data on startup with automatic SQLite fallback."""
+    global engine, AsyncSessionLocal
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        async with AsyncSessionLocal() as session:
+            await seed_initial_data(session)
+    except Exception as e:
+        logger.warning(f"Database connection to {db_url[:30]}... failed ({e}). Falling back to local SQLite database.")
+        fallback_url = "sqlite+aiosqlite:///./tradegod.db"
+        engine = create_async_engine(fallback_url, echo=False)
+        AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        async with AsyncSessionLocal() as session:
+            await seed_initial_data(session)
 
 async def get_db():
     """Async session generator for FastAPI endpoints."""
