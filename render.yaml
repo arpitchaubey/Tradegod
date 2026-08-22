@@ -28,7 +28,3 @@ services:
         value: "2.0"
       - key: MAX_TRADES_PER_DAY
         value: "5"
-    disk:
-      name: tradegod-db-data
-      mountPath: /app/data
-      sizeGB: 1
