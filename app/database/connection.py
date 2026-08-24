@@ -1,21 +1,95 @@
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
-from sqlalchemy import select
+import ssl
 import json
 import logging
+from urllib.parse import urlparse, parse_qsl, urlunparse, urlencode
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+from sqlalchemy import select
 from app.config import settings
 from app.database.models import Base, DBUser, DBStrategy, DBBrokerAccount
 
 logger = logging.getLogger(__name__)
 
-# Normalize DATABASE_URL for async SQLAlchemy
-db_url = settings.database_url
-if db_url.startswith("postgres://"):
-    db_url = db_url.replace("postgres://", "postgresql+asyncpg://", 1)
-elif db_url.startswith("postgresql://") and not db_url.startswith("postgresql+asyncpg://"):
-    db_url = db_url.replace("postgresql://", "postgresql+asyncpg://", 1)
+def normalize_database_url(raw_url: str) -> tuple[str, dict]:
+    """
+    Normalizes a DATABASE_URL for async SQLAlchemy with asyncpg or aiosqlite.
+    Translates postgres/sqlite schemes, strips unsupported query arguments (like 'sslmode', 
+    'channel_binding') that cause asyncpg.connect() unexpected keyword argument errors,
+    and configures SSL context via connect_args.
+    """
+    connect_args = {}
+    if not raw_url or not raw_url.strip():
+        return "sqlite+aiosqlite:///./tradegod.db", connect_args
 
-engine = create_async_engine(db_url, echo=False)
-AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+    url = raw_url.strip()
+
+    # Translate URL schemes for async drivers
+    if url.startswith("postgres://"):
+        url = url.replace("postgres://", "postgresql+asyncpg://", 1)
+    elif url.startswith("postgresql://") and not url.startswith("postgresql+asyncpg://"):
+        url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
+    elif url.startswith("sqlite://") and not url.startswith("sqlite+aiosqlite://"):
+        url = url.replace("sqlite://", "sqlite+aiosqlite://", 1)
+
+    if "postgresql+asyncpg://" in url:
+        parsed = urlparse(url)
+        query_dict = dict(parse_qsl(parsed.query))
+
+        # asyncpg.connect() does not accept 'sslmode' or 'channel_binding' as raw URL parameters
+        sslmode = query_dict.pop("sslmode", None)
+        ssl_param = query_dict.pop("ssl", None)
+        query_dict.pop("channel_binding", None)
+
+        # Retain only valid asyncpg connect keyword parameters in the query string
+        valid_asyncpg_kwargs = {
+            "command_timeout", "statement_cache_size", "max_cached_statement_lifetime",
+            "max_cacheable_statement_size", "target_session_attrs", "krbsrvname", "gsslib",
+            "server_settings", "timeout"
+        }
+        filtered_query = {k: v for k, v in query_dict.items() if k in valid_asyncpg_kwargs}
+
+        ssl_val = (ssl_param or sslmode or "").lower()
+        if ssl_val in ["disable", "false", "0", "no", "off"]:
+            connect_args["ssl"] = False
+        elif ssl_val in ["require", "prefer", "allow", "verify-ca", "verify-full", "true", "1", "yes"]:
+            ctx = ssl.create_default_context()
+            if ssl_val in ["require", "prefer", "allow"]:
+                # Cloud PostgreSQL providers (Render, Neon, Supabase, Railway) use pooled or managed certs
+                ctx.check_hostname = False
+                ctx.verify_mode = ssl.CERT_NONE
+            connect_args["ssl"] = ctx
+        else:
+            # If no sslmode specified, check if connecting to a remote host (not localhost)
+            hostname = parsed.hostname or ""
+            if hostname and hostname not in ("localhost", "127.0.0.1", "::1"):
+                ctx = ssl.create_default_context()
+                ctx.check_hostname = False
+                ctx.verify_mode = ssl.CERT_NONE
+                connect_args["ssl"] = ctx
+
+        new_query = urlencode(filtered_query)
+        url = urlunparse(parsed._replace(query=new_query))
+
+    return url, connect_args
+
+class SessionMakerProxy:
+    """Proxy that dynamically delegates to an active async_sessionmaker, allowing runtime engine fallback."""
+    def __init__(self, maker):
+        self._maker = maker
+
+    def set_maker(self, maker):
+        self._maker = maker
+
+    def __call__(self, *args, **kwargs):
+        return self._maker(*args, **kwargs)
+
+    def begin(self, *args, **kwargs):
+        return self._maker.begin(*args, **kwargs)
+
+# Initialize engine and sessionmaker
+db_url, db_connect_args = normalize_database_url(settings.database_url)
+engine = create_async_engine(db_url, connect_args=db_connect_args, echo=False)
+_session_maker = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+AsyncSessionLocal = SessionMakerProxy(_session_maker)
 
 async def seed_initial_data(session: AsyncSession):
     """Automatically seeds default user, active strategy, and paper account if database is fresh."""
@@ -85,7 +159,7 @@ async def init_db():
         logger.warning(f"Database connection to {db_url[:30]}... failed ({e}). Falling back to local SQLite database.")
         fallback_url = "sqlite+aiosqlite:///./tradegod.db"
         engine = create_async_engine(fallback_url, echo=False)
-        AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+        AsyncSessionLocal.set_maker(async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession))
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
         async with AsyncSessionLocal() as session:
