@@ -58,6 +58,16 @@ class SignalStateMachine:
                         "message": f"🛑 Stop Loss hit for {symbol} at {current_price:.2f}"
                     })
                     await paper_broker.close_position(alert_id, current_price)
+                    try:
+                        from app.learning.feedback_engine import feedback_engine
+                        feedback_engine.record_trade_completion(
+                            alert_id=alert_id, symbol=symbol, direction="BUY",
+                            entry_price=signal.entry_price, exit_price=current_price,
+                            stop_loss=sl, take_profit=tp2, result="LOSS_SL", r_multiple=-1.0,
+                            confidence_score=signal.confidence_score
+                        )
+                    except Exception:
+                        pass
 
                 # Take Profit 1 Hit
                 elif current_price >= tp1 and not item["tp1_hit"]:
@@ -69,6 +79,16 @@ class SignalStateMachine:
                         "price": current_price,
                         "message": f"🎯 Take Profit 1 hit for {symbol} at {current_price:.2f}! Partial scale-out."
                     })
+                    try:
+                        from app.learning.feedback_engine import feedback_engine
+                        feedback_engine.record_trade_completion(
+                            alert_id=alert_id, symbol=symbol, direction="BUY",
+                            entry_price=signal.entry_price, exit_price=current_price,
+                            stop_loss=sl, take_profit=tp1, result="WIN_TP1", r_multiple=1.0,
+                            confidence_score=signal.confidence_score
+                        )
+                    except Exception:
+                        pass
 
                 # Take Profit 2 Hit
                 elif current_price >= tp2 and not item["tp2_hit"]:
@@ -81,6 +101,16 @@ class SignalStateMachine:
                         "message": f"🏆 Take Profit 2 hit for {symbol} at {current_price:.2f}! Full trade closed."
                     })
                     await paper_broker.close_position(alert_id, current_price)
+                    try:
+                        from app.learning.feedback_engine import feedback_engine
+                        feedback_engine.record_trade_completion(
+                            alert_id=alert_id, symbol=symbol, direction="BUY",
+                            entry_price=signal.entry_price, exit_price=current_price,
+                            stop_loss=sl, take_profit=tp2, result="WIN_TP2", r_multiple=signal.risk_reward_ratio,
+                            confidence_score=signal.confidence_score
+                        )
+                    except Exception:
+                        pass
 
             elif direction == "SELL" or direction == "short":
                 # Stop Loss Hit
@@ -94,6 +124,16 @@ class SignalStateMachine:
                         "message": f"🛑 Stop Loss hit for {symbol} short at {current_price:.2f}"
                     })
                     await paper_broker.close_position(alert_id, current_price)
+                    try:
+                        from app.learning.feedback_engine import feedback_engine
+                        feedback_engine.record_trade_completion(
+                            alert_id=alert_id, symbol=symbol, direction="SELL",
+                            entry_price=signal.entry_price, exit_price=current_price,
+                            stop_loss=sl, take_profit=tp2, result="LOSS_SL", r_multiple=-1.0,
+                            confidence_score=signal.confidence_score
+                        )
+                    except Exception:
+                        pass
 
                 # Take Profit 1 Hit
                 elif current_price <= tp1 and not item["tp1_hit"]:
@@ -105,6 +145,16 @@ class SignalStateMachine:
                         "price": current_price,
                         "message": f"🎯 Take Profit 1 hit for {symbol} short at {current_price:.2f}!"
                     })
+                    try:
+                        from app.learning.feedback_engine import feedback_engine
+                        feedback_engine.record_trade_completion(
+                            alert_id=alert_id, symbol=symbol, direction="SELL",
+                            entry_price=signal.entry_price, exit_price=current_price,
+                            stop_loss=sl, take_profit=tp1, result="WIN_TP1", r_multiple=1.0,
+                            confidence_score=signal.confidence_score
+                        )
+                    except Exception:
+                        pass
 
                 # Take Profit 2 Hit
                 elif current_price <= tp2 and not item["tp2_hit"]:
@@ -117,6 +167,16 @@ class SignalStateMachine:
                         "message": f"🏆 Take Profit 2 hit for {symbol} short at {current_price:.2f}!"
                     })
                     await paper_broker.close_position(alert_id, current_price)
+                    try:
+                        from app.learning.feedback_engine import feedback_engine
+                        feedback_engine.record_trade_completion(
+                            alert_id=alert_id, symbol=symbol, direction="SELL",
+                            entry_price=signal.entry_price, exit_price=current_price,
+                            stop_loss=sl, take_profit=tp2, result="WIN_TP2", r_multiple=signal.risk_reward_ratio,
+                            confidence_score=signal.confidence_score
+                        )
+                    except Exception:
+                        pass
 
         return events
 

@@ -132,14 +132,22 @@ def detect_breakout(
 
     latest_close = float(df["close"].iloc[-1])
     latest_open = float(df["open"].iloc[-1])
+    latest_high = float(df["high"].iloc[-1])
+    latest_low = float(df["low"].iloc[-1])
     prev_close = float(df["close"].iloc[-2])
+
+    candle_range = max(1e-5, latest_high - latest_low)
+    upper_wick = latest_high - max(latest_close, latest_open)
+    lower_wick = min(latest_close, latest_open) - latest_low
 
     # Long Breakout above swing resistance
     for r in resistances:
         if latest_close > r.price:
             atr_confirmed = (latest_close >= r.price + atr_margin)
             two_closes_confirmed = (latest_close > r.price and prev_close > r.price)
-            confirmed = (atr_confirmed or two_closes_confirmed) and (latest_close >= latest_open)
+            # Rejection wick filter: upper wick cannot dominate the candle (less than 60% of total candle range)
+            no_topping_tail = (upper_wick / candle_range) < 0.60
+            confirmed = (atr_confirmed or two_closes_confirmed) and (latest_close >= latest_open) and no_topping_tail
 
             return BreakoutInfo(
                 is_breakout=True,
@@ -154,7 +162,9 @@ def detect_breakout(
         if latest_close < s.price:
             atr_confirmed = (latest_close <= s.price - atr_margin)
             two_closes_confirmed = (latest_close < s.price and prev_close < s.price)
-            confirmed = (atr_confirmed or two_closes_confirmed) and (latest_close <= latest_open)
+            # Rejection wick filter: lower wick cannot dominate the candle (less than 60% of total candle range)
+            no_bottom_tail = (lower_wick / candle_range) < 0.60
+            confirmed = (atr_confirmed or two_closes_confirmed) and (latest_close <= latest_open) and no_bottom_tail
 
             return BreakoutInfo(
                 is_breakout=True,

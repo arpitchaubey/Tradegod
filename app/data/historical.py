@@ -6,12 +6,16 @@ from app.data.provider import get_data_provider, BaseDataProvider
 from app.data.chart_info import build_chart_info, ActiveChartInfo
 from app.config import settings
 
+import time
+
 class CandleBufferManager:
     """In-memory cache and buffer for symbol candles across timeframes."""
 
     def __init__(self, provider: Optional[BaseDataProvider] = None):
         self.provider = provider or get_data_provider(settings.default_data_provider, settings.twelve_data_api_key)
         self.cache: Dict[str, Dict[str, pd.DataFrame]] = {}  # {symbol: {timeframe: df}}
+        self.cache_time: Dict[str, Dict[str, float]] = {}    # {symbol: {timeframe: timestamp}}
+        self.ttl_seconds: float = 4.0
 
     async def get_candles_df(
         self,
@@ -20,15 +24,21 @@ class CandleBufferManager:
         limit: int = 100,
         force_refresh: bool = False
     ) -> pd.DataFrame:
-        """Retrieves candles DataFrame for a given symbol and timeframe."""
+        """Retrieves candles DataFrame for a given symbol and timeframe with TTL expiration."""
         symbol = symbol.upper()
         if symbol not in self.cache:
             self.cache[symbol] = {}
+            self.cache_time[symbol] = {}
 
-        if force_refresh or timeframe not in self.cache[symbol]:
+        now = time.time()
+        last_fetch = self.cache_time[symbol].get(timeframe, 0.0)
+        is_expired = (now - last_fetch) > self.ttl_seconds
+
+        if force_refresh or is_expired or timeframe not in self.cache[symbol]:
             raw_candles = await self.provider.fetch_candles(symbol, timeframe, limit)
             df = normalize_candles_df(raw_candles)
             self.cache[symbol][timeframe] = df
+            self.cache_time[symbol][timeframe] = now
 
         return self.cache[symbol][timeframe]
 
@@ -48,15 +58,13 @@ class CandleBufferManager:
 
         for tf_key, tf_val in tf_dict.items():
             if tf_val not in result:
-                if len(entry_df) > 0 and tf_val in ["15m", "1h", "4h"]:
-                    # Resample from entry df if possible for consistency
-                    resampled = resample_candles(entry_df, tf_val)
-                    result[tf_val] = resampled
-                else:
-                    df = await self.get_candles_df(symbol, tf_val, limit=limit)
-                    result[tf_val] = df
+                df = await self.get_candles_df(symbol, tf_val, limit=max(limit, 200))
+                result[tf_val] = df
+            # Map semantic alias
+            result[tf_key] = result[tf_val]
 
         return result
+
 
     async def get_active_chart_info(
         self,

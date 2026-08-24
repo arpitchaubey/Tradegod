@@ -73,13 +73,17 @@ def evaluate_trend_alignment(
     If ADX < adx_threshold, market is 'ranging' and trend alignment is False (suppressed).
     Returns: (trend_direction ("bullish" | "bearish" | "ranging"), aligned, fast_val, slow_val)
     """
-    if len(df) < slow_period:
+    if df.empty or len(df) < 8:
         return ("ranging", False, 0.0, 0.0)
+
+    eff_fast = min(fast_period, max(5, len(df) // 3))
+    eff_slow = min(slow_period, max(8, len(df) - 1))
 
     adx_val, regime, adx_pass = evaluate_adx_gate(df, adx_threshold=adx_threshold)
 
-    ema_fast = calculate_ema(df, fast_period)
-    ema_slow = calculate_ema(df, slow_period)
+    ema_fast = calculate_ema(df, eff_fast)
+    ema_slow = calculate_ema(df, eff_slow)
+
 
     fast_val = float(ema_fast.iloc[-1])
     slow_val = float(ema_slow.iloc[-1])

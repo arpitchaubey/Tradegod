@@ -4,9 +4,11 @@ import pandas as pd
 from app.data.historical import candle_buffer
 from app.strategy.engine import StrategyEngine
 from app.strategy.schemas import StrategyDefinition
+from app.strategy.active_store import active_strategy_store
 from app.risk.manager import RiskManager
 from app.backtest.metrics import SimulatedTrade, BacktestReport, calculate_backtest_metrics
 from app.data.symbols import get_symbol_spec
+from app.ai.preferences import omni_preferences_store
 
 class BacktestEngine:
     """Candle-by-candle Backtest Simulation Engine."""
@@ -17,7 +19,8 @@ class BacktestEngine:
         initial_balance: float = 10000.0,
         risk_percent: float = 1.0
     ):
-        self.strategy_engine = StrategyEngine(strategy)
+        strat = strategy or active_strategy_store.get_strategy()
+        self.strategy_engine = StrategyEngine(strat)
         self.risk_manager = RiskManager(account_balance=initial_balance, risk_percent=risk_percent)
         self.initial_balance = initial_balance
 
@@ -28,11 +31,14 @@ class BacktestEngine:
         candle_limit: int = 300
     ) -> BacktestReport:
         """Runs backtest simulation over candle history."""
-        timeframes = self.strategy_engine.strategy.timeframes
+        strat = self.strategy_engine.strategy
+        timeframes = strat.timeframes
+        user_prefs = omni_preferences_store.get_preferences()
+
         tf_dfs = await candle_buffer.get_multi_timeframe_dfs(symbol, timeframes, limit=candle_limit)
         entry_df = tf_dfs.get(timeframe, tf_dfs.get("5m"))
 
-        if entry_df is None or len(entry_df) < 50:
+        if entry_df is None or len(entry_df) < 30:
             return calculate_backtest_metrics(symbol, timeframe, 0, [], self.initial_balance)
 
         spec = get_symbol_spec(symbol)
@@ -42,7 +48,7 @@ class BacktestEngine:
         trade_id_counter = 1
 
         # Iterate over sliding window of candles
-        min_window = 30
+        min_window = 20
         for i in range(min_window, len(entry_df)):
             sub_df = entry_df.iloc[:i+1]
             current_candle = entry_df.iloc[i]
@@ -103,9 +109,13 @@ class BacktestEngine:
                 for tf_key, tf_df_item in tf_dfs.items():
                     if "timestamp" in tf_df_item.columns:
                         sliced_df = tf_df_item[tf_df_item["timestamp"] <= cur_ts]
-                        eval_sub_dfs[tf_key] = sliced_df if len(sliced_df) >= 20 else tf_df_item
+                        eval_sub_dfs[tf_key] = sliced_df if len(sliced_df) >= 10 else tf_df_item
                     else:
                         eval_sub_dfs[tf_key] = tf_df_item
+
+                eval_sub_dfs["trend"] = eval_sub_dfs.get("1h", eval_sub_dfs.get("trend", sub_df))
+                eval_sub_dfs["setup"] = eval_sub_dfs.get("15m", eval_sub_dfs.get("setup", sub_df))
+                eval_sub_dfs["entry"] = sub_df
 
                 eval_res = self.strategy_engine.evaluate(eval_sub_dfs)
 
@@ -115,16 +125,25 @@ class BacktestEngine:
                         symbol=symbol,
                         direction=dir_str,
                         current_df=sub_df,
-                        target_rr=self.strategy_engine.strategy.risk_reward_ratio
+                        target_rr=strat.risk_reward_ratio
                     )
+
+                    # Ensure target satisfies user min profit pips
+                    min_pips_dist = user_prefs.min_profit_pips * spec.pip_size
+                    lot_size = user_prefs.preferred_lot_size or risk_plan.position_size_lots
+
+                    if dir_str == "BUY":
+                        tp_level = max(risk_plan.take_profit_2, risk_plan.entry_price + min_pips_dist)
+                    else:
+                        tp_level = min(risk_plan.take_profit_2, risk_plan.entry_price - min_pips_dist)
 
                     in_trade = True
                     active_trade_info = {
                         "direction": dir_str,
                         "entry_price": risk_plan.entry_price,
                         "stop_loss": risk_plan.stop_loss,
-                        "take_profit": risk_plan.take_profit_2,
-                        "position_size_lots": risk_plan.position_size_lots,
+                        "take_profit": tp_level,
+                        "position_size_lots": lot_size,
                         "risk_amount": risk_plan.max_risk_amount,
                         "entry_time": ts
                     }

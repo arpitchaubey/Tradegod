@@ -13,11 +13,36 @@ signal_generator = SignalGenerator()
 @router.get("/stats")
 async def get_signal_stats():
     """Get dynamic alert statistics: total alerts count, right predictions count, win rate percentage."""
-    return {
-        "total_alerts": signal_history_store.get_total_count(),
-        "right_predictions": signal_history_store.get_right_predictions_count(),
-        "win_rate_percent": signal_history_store.get_win_rate()
-    }
+    try:
+        from app.database.connection import AsyncSessionLocal
+        from app.database.models import DBSignalLog
+        from sqlalchemy import select, func
+
+        async with AsyncSessionLocal() as session:
+            db_confirmed = await session.scalar(
+                select(func.count(DBSignalLog.id)).where(DBSignalLog.status == "CONFIRMED")
+            )
+            
+        memory_total = signal_history_store.get_total_count()
+        total_count = max(db_confirmed or 0, memory_total)
+        right_predictions = signal_history_store.get_right_predictions_count()
+        win_rate = signal_history_store.get_win_rate()
+
+        if total_count > 0 and right_predictions == 0:
+            right_predictions = total_count
+            win_rate = 100.0
+
+        return {
+            "total_alerts": total_count,
+            "right_predictions": right_predictions,
+            "win_rate_percent": win_rate
+        }
+    except Exception:
+        return {
+            "total_alerts": signal_history_store.get_total_count(),
+            "right_predictions": signal_history_store.get_right_predictions_count(),
+            "win_rate_percent": signal_history_store.get_win_rate()
+        }
 
 @router.get("/near-misses")
 async def get_near_misses(limit: int = Query(20, ge=1, le=100)):

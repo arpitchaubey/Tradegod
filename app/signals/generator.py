@@ -12,10 +12,11 @@ from app.ai.explanation import generate_signal_explanation
 from app.config import settings
 
 from app.strategy.active_store import active_strategy_store
-
 from app.data.provider import log_execution_event
 from app.risk.limits import get_utc_trading_session, is_blackout_active
 from app.indicators.trend import evaluate_adx_gate
+from app.ai.omni_engine import omni_engine
+from app.ai.preferences import omni_preferences_store
 import uuid
 import json
 
@@ -59,7 +60,7 @@ async def _persist_signal_log(
         pass
 
 class SignalGenerator:
-    """Core Signal Generation and Alert Pipeline."""
+    """Core Signal Generation and Alert Pipeline powered by Omni AI Engine."""
 
     def __init__(
         self,
@@ -75,11 +76,9 @@ class SignalGenerator:
         force_generate: bool = False
     ) -> Optional[SignalPayload]:
         """
-        Executes end-to-end signal analysis pipeline using current active strategy.
+        Executes end-to-end signal analysis pipeline using Omni AI Engine and user preferences.
         """
         current_strategy = active_strategy_store.get_strategy()
-        strategy_engine = StrategyEngine(current_strategy)
-
         timeframes = current_strategy.timeframes
         entry_tf = timeframes.get("entry", "5m")
         session_name = get_utc_trading_session()
@@ -91,7 +90,7 @@ class SignalGenerator:
         if entry_df is None or entry_df.empty:
             return None
 
-        # 1. HARD-BLOCK GUARD: Check for synthetic data source in active evaluation window
+        # 1. HARD-BLOCK GUARD: Check for synthetic data source
         has_synthetic = False
         for tf, df in tf_dfs.items():
             if "source" in df.columns and any(df["source"].astype(str).str.lower().isin(["synthetic", "mock"])):
@@ -100,17 +99,6 @@ class SignalGenerator:
 
         if has_synthetic and not force_generate:
             await log_execution_event("DATA_GUARD_BLOCK", f"Signal generation blocked: synthetic data present in {symbol} candles", {"symbol": symbol})
-            await _persist_signal_log(
-                alert_id=f"guard_{uuid.uuid4().hex[:8]}",
-                symbol=symbol,
-                direction="NONE",
-                entry_price=float(entry_df["close"].iloc[-1]),
-                sl=0.0, tp1=0.0, tp2=0.0, rr=0.0, lots=0.0,
-                confidence_score=0,
-                status="SUPPRESSED_SYNTHETIC",
-                session=session_name,
-                confirmations=["insufficient live data — signal suppressed"]
-            )
             return None
 
         # 2. Blackout window filter
@@ -119,7 +107,7 @@ class SignalGenerator:
             await log_execution_event("BLACKOUT_SUPPRESSED", f"Signal suppressed due to blackout: {blackout_reason}", {"symbol": symbol})
             return None
 
-        # Build Active Chart Context Metadata with ADX & Regime
+        # Build Active Chart Context Metadata
         trend_1h_df = tf_dfs.get("1h", entry_df)
         adx_val, regime, _ = evaluate_adx_gate(trend_1h_df)
         last_price = float(entry_df["close"].iloc[-1])
@@ -135,58 +123,60 @@ class SignalGenerator:
             regime=regime
         )
 
-        # Evaluate Strategy
-        eval_result = strategy_engine.evaluate(tf_dfs)
-        direction = eval_result.direction
-        confidence_score = eval_result.confidence_score
+        # 3. Generate Multi-Timeframe Forecast via Omni AI Engine
+        omni_forecast = await omni_engine.generate_future_trade_forecast(symbol, entry_tf, tf_dfs)
+        user_prefs = omni_preferences_store.get_preferences()
 
-        # Calculate Risk Plan
-        risk_plan = self.risk_manager.calculate_trade_plan(
-            symbol=symbol,
-            direction=direction,
-            current_df=entry_df,
-            target_rr=current_strategy.risk_reward_ratio,
-            sl_method=current_strategy.sl_method
-        )
+        direction = omni_forecast.primary_direction
+        if direction not in ["BUY", "SELL"]:
+            if force_generate:
+                # Default to trend direction on forced manual scan if ranging
+                direction = "BUY" if last_price >= omni_forecast.entry_market_price else "SELL"
+            else:
+                return None
 
-        # Log evaluation cycle (including Near Misses and No Trade)
-        eval_status = "CONFIRMED" if eval_result.is_valid_setup else ("NEAR_MISS" if confidence_score >= 60 else "NO_TRADE")
-        confirmations = [f"✓ {r.description}" for r in eval_result.rule_results if r.passed]
+        confidence_score = omni_forecast.win_probability_percent
 
+        # Confirmations
+        confirmations = [f"✓ {d}" for d in omni_forecast.institutional_drivers]
+        if omni_forecast.session_sweep_bias != "neutral":
+            confirmations.append(f"✓ Session Liquidity Sweep ({omni_forecast.session_sweep_bias.replace('_', ' ').title()})")
+
+        eval_status = "CONFIRMED" if confidence_score >= user_prefs.min_confidence_score else "NEAR_MISS"
         eval_alert_id = deduplicator.generate_alert_id(symbol, entry_tf, direction, last_ts)
+
         await _persist_signal_log(
             alert_id=eval_alert_id,
             symbol=symbol,
             direction=direction,
-            entry_price=risk_plan.entry_price,
-            sl=risk_plan.stop_loss,
-            tp1=risk_plan.take_profit_1,
-            tp2=risk_plan.take_profit_2,
-            rr=risk_plan.risk_reward_ratio,
-            lots=risk_plan.position_size_lots,
+            entry_price=omni_forecast.entry_zone["ideal"],
+            sl=omni_forecast.stop_loss,
+            tp1=omni_forecast.take_profit_1,
+            tp2=omni_forecast.take_profit_2,
+            rr=omni_forecast.risk_reward_ratio,
+            lots=user_prefs.preferred_lot_size,
             confidence_score=confidence_score,
             status=eval_status,
             session=session_name,
             confirmations=confirmations
         )
 
-        if not eval_result.is_valid_setup and not force_generate:
+        if confidence_score < user_prefs.min_confidence_score and not force_generate:
             return None
 
-        # Check Deduplication
         alert_id = eval_alert_id
         if deduplicator.is_duplicate(alert_id) and not force_generate:
             return None
 
-        # Generate AI Summary Explanation
+        # AI Summary Explanation
         explanation = generate_signal_explanation(
             symbol=symbol,
             direction=direction,
-            entry=risk_plan.entry_price,
-            sl=risk_plan.stop_loss,
-            tp=risk_plan.take_profit_2,
-            confidence=eval_result.confidence_score,
-            trend=eval_result.higher_tf_trend,
+            entry=omni_forecast.entry_zone["ideal"],
+            sl=omni_forecast.stop_loss,
+            tp=omni_forecast.take_profit_2,
+            confidence=confidence_score,
+            trend=omni_forecast.market_regime,
             confirmations=confirmations
         )
 
@@ -194,15 +184,24 @@ class SignalGenerator:
             alert_id=alert_id,
             symbol=symbol,
             direction=direction,
-            entry_price=risk_plan.entry_price,
-            stop_loss=risk_plan.stop_loss,
-            take_profit_1=risk_plan.take_profit_1,
-            take_profit_2=risk_plan.take_profit_2,
-            risk_reward_ratio=risk_plan.risk_reward_ratio,
-            position_size_lots=risk_plan.position_size_lots,
+            entry_price=omni_forecast.entry_zone["ideal"],
+            entry_market_price=omni_forecast.entry_market_price,
+            entry_limit_price=omni_forecast.entry_limit_price,
+            entry_reachability_percent=omni_forecast.entry_reachability_percent,
+            entry_reachability_state=omni_forecast.entry_reachability_state,
+            entry_distance_pips=omni_forecast.entry_distance_pips,
+            stop_loss=omni_forecast.stop_loss,
+            take_profit_1=omni_forecast.take_profit_1,
+            take_profit_2=omni_forecast.take_profit_2,
+            take_profit_3=omni_forecast.take_profit_3,
+            risk_reward_ratio=omni_forecast.risk_reward_ratio,
+            min_profit_pips=user_prefs.min_profit_pips,
+            expected_profit_pips=omni_forecast.expected_profit_pips,
+            expected_profit_usd=omni_forecast.expected_profit_usd,
+            position_size_lots=user_prefs.preferred_lot_size,
             confidence_score=confidence_score,
             timeframe=entry_tf,
-            higher_tf_trend=eval_result.higher_tf_trend,
+            higher_tf_trend=omni_forecast.market_regime,
             status=SignalStatus.CONFIRMED,
             confirmations=confirmations,
             created_at=datetime.now(timezone.utc).isoformat(),
@@ -212,7 +211,7 @@ class SignalGenerator:
 
         deduplicator.register_alert(alert_id)
 
-        # Final Stage Pipeline Execution & State Machine Transition
+        # Execution & state machine trigger
         try:
             from app.signals.state_machine import state_machine
             from app.execution.manager import execution_manager
@@ -223,3 +222,4 @@ class SignalGenerator:
 
         return payload
 
+signal_generator = SignalGenerator()

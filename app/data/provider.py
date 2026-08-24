@@ -62,17 +62,17 @@ class MockDataProvider(BaseDataProvider):
         minutes = tf_minutes_map.get(timeframe.lower(), 5)
 
         base_prices = {
-            "XAU/USD": 3345.0,
-            "XAG/USD": 38.50,
-            "EUR/USD": 1.0850,
-            "GBP/USD": 1.2950,
-            "USD/JPY": 152.00,
-            "BTC/USD": 95000.0,
-            "ETH/USD": 3200.0,
-            "US30": 43500.0
+            "XAU/USD": 4670.0,
+            "XAG/USD": 69.50,
+            "EUR/USD": 1.1670,
+            "GBP/USD": 1.3640,
+            "USD/JPY": 159.10,
+            "BTC/USD": 78000.0,
+            "ETH/USD": 2480.0,
+            "US30": 53400.0
         }
 
-        start_price = base_prices.get(spec.symbol, 3345.0)
+        start_price = base_prices.get(spec.symbol, 4670.0)
         volatility = spec.pip_size * (20 if spec.category == "metals" else 15)
 
         now = datetime.now(timezone.utc)
@@ -151,9 +151,9 @@ class TwelveDataProvider(BaseDataProvider):
                 resp = await client.get(f"{self.base_url}/time_series", params=params)
                 data = resp.json()
                 if "values" not in data or not data["values"]:
-                    # Fallback to Yahoo Finance
-                    await log_execution_event("DATA_FALLBACK", "Twelve Data API empty/quota error. Falling back to Yahoo Finance", {"symbol": symbol, "response": str(data)[:200]})
-                    return await YahooFinanceProvider().fetch_candles(symbol, timeframe, limit)
+                    # Fallback to Real-time Live Spot Market Provider
+                    await log_execution_event("DATA_FALLBACK", "Twelve Data API quota reached/empty. Falling back to Live Spot Market Feed", {"symbol": symbol, "response": str(data)[:150]})
+                    return await LiveSpotMarketProvider().fetch_candles(symbol, timeframe, limit)
 
                 candles: List[Candle] = []
                 for item in reversed(data["values"]):
@@ -179,8 +179,8 @@ class TwelveDataProvider(BaseDataProvider):
                     ))
                 return candles
             except Exception as e:
-                await log_execution_event("DATA_FALLBACK", f"Twelve Data connection error ({e}). Falling back to Yahoo Finance", {"symbol": symbol, "error": str(e)})
-                return await YahooFinanceProvider().fetch_candles(symbol, timeframe, limit)
+                await log_execution_event("DATA_FALLBACK", f"Twelve Data connection error ({e}). Falling back to Live Spot Market Feed", {"symbol": symbol, "error": str(e)})
+                return await LiveSpotMarketProvider().fetch_candles(symbol, timeframe, limit)
 
 class YahooFinanceProvider(BaseDataProvider):
     """Data provider fallback using public Yahoo Finance endpoints."""
@@ -191,7 +191,6 @@ class YahooFinanceProvider(BaseDataProvider):
         timeframe: str = "5m",
         limit: int = 100
     ) -> List[Candle]:
-        # Mapping symbol to Yahoo tickers
         ticker_map = {
             "XAU/USD": "GC=F",
             "XAG/USD": "SI=F",
@@ -260,6 +259,83 @@ class YahooFinanceProvider(BaseDataProvider):
                 return await MockDataProvider().fetch_candles(symbol, timeframe, limit)
 
 
+class BinanceSpotProvider(BaseDataProvider):
+    """Direct high-frequency real-time Spot market data provider."""
+
+    async def fetch_candles(
+        self,
+        symbol: str = "XAU/USD",
+        timeframe: str = "5m",
+        limit: int = 100
+    ) -> List[Candle]:
+        spec = get_symbol_spec(symbol)
+        pair_map = {
+            "XAU/USD": "PAXGUSDT",  # 1:1 Spot Gold in USD matching TradingView OANDA:XAUUSD
+            "BTC/USD": "BTCUSDT",
+            "ETH/USD": "ETHUSDT",
+            "EUR/USD": "EURUSDT",
+            "GBP/USD": "GBPUSDT"
+        }
+        binance_symbol = pair_map.get(spec.symbol)
+        if not binance_symbol:
+            return await YahooFinanceProvider().fetch_candles(symbol, timeframe, limit)
+
+        tf_map = {
+            "1m": "1m", "3m": "3m", "5m": "5m", "15m": "15m",
+            "30m": "30m", "1h": "1h", "2h": "2h", "4h": "4h", "1d": "1d"
+        }
+        interval = tf_map.get(timeframe.lower(), "5m")
+        url = f"https://api.binance.com/api/v3/klines?symbol={binance_symbol}&interval={interval}&limit={limit}"
+
+        async with httpx.AsyncClient(timeout=4.0) as client:
+            try:
+                resp = await client.get(url)
+                if resp.status_code != 200:
+                    return await YahooFinanceProvider().fetch_candles(symbol, timeframe, limit)
+
+                data = resp.json()
+                candles: List[Candle] = []
+                for k in data:
+                    ts = datetime.fromtimestamp(k[0] / 1000, tz=timezone.utc)
+                    candles.append(Candle(
+                        symbol=spec.symbol,
+                        timeframe=timeframe,
+                        timestamp=ts,
+                        open=round(float(k[1]), spec.quote_precision),
+                        high=round(float(k[2]), spec.quote_precision),
+                        low=round(float(k[3]), spec.quote_precision),
+                        close=round(float(k[4]), spec.quote_precision),
+                        volume=round(float(k[5]), 2),
+                        source="binance_spot"
+                    ))
+                return candles
+            except Exception as e:
+                await log_execution_event("DATA_FALLBACK", f"Binance Spot error ({e}). Falling back to Yahoo Finance", {"symbol": symbol, "error": str(e)})
+                return await YahooFinanceProvider().fetch_candles(symbol, timeframe, limit)
+
+class LiveSpotMarketProvider(BaseDataProvider):
+    """
+    Hybrid multi-source real-time Spot Market Data Provider.
+    Routes Gold & Crypto to instant Binance Spot feeds (PAXG, BTC, ETH) matching TradingView 1:1,
+    and Forex/Indices to Yahoo Finance / FX spot feeds.
+    """
+    def __init__(self):
+        self.binance = BinanceSpotProvider()
+        self.yahoo = YahooFinanceProvider()
+
+    async def fetch_candles(
+        self,
+        symbol: str = "XAU/USD",
+        timeframe: str = "5m",
+        limit: int = 100
+    ) -> List[Candle]:
+        spec = get_symbol_spec(symbol)
+        if spec.symbol in ["XAU/USD", "BTC/USD", "ETH/USD"]:
+            candles = await self.binance.fetch_candles(symbol, timeframe, limit)
+            if candles:
+                return candles
+        return await self.yahoo.fetch_candles(symbol, timeframe, limit)
+
 def get_data_provider(provider_type: str = "yfinance", api_key: str = "") -> BaseDataProvider:
     """Factory method to get instances of Data Provider."""
     p_type = provider_type.lower()
@@ -268,5 +344,5 @@ def get_data_provider(provider_type: str = "yfinance", api_key: str = "") -> Bas
     elif p_type == "mock":
         return MockDataProvider()
     else:
-        return YahooFinanceProvider()
+        return LiveSpotMarketProvider()
 

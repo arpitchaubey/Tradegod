@@ -52,3 +52,22 @@ async def test_api_endpoints():
         resp = await client.post("/api/backtest/run?symbol=XAU/USD&limit=100")
         assert resp.status_code == 200
         assert "profit_factor" in resp.json()
+
+@pytest.mark.asyncio
+async def test_cors_headers():
+    transport = ASGITransport(app=app)
+    headers = {
+        "Origin": "https://frontend-phi-snowy-59.vercel.app",
+        "Access-Control-Request-Method": "POST",
+        "Access-Control-Request-Headers": "content-type"
+    }
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        # Preflight OPTIONS request
+        resp = await client.options("/api/auth/register", headers=headers)
+        assert resp.status_code == 200
+        assert resp.headers.get("access-control-allow-origin") == "https://frontend-phi-snowy-59.vercel.app"
+
+        # POST request with origin
+        post_headers = {"Origin": "https://frontend-phi-snowy-59.vercel.app"}
+        resp = await client.post("/api/auth/login", json={"email": "nonexistent@test.com", "password": "wrong"}, headers=post_headers)
+        assert resp.headers.get("access-control-allow-origin") == "https://frontend-phi-snowy-59.vercel.app"

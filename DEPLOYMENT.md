@@ -28,6 +28,7 @@ This guide covers deploying the **TRADE GOD** AI Trading Engine (FastAPI Backend
    - `GEMINI_API_KEY`: `AQ.Ab8...`
    - `DEFAULT_DATA_PROVIDER`: `twelvedata`
    - `DATABASE_URL`: `sqlite+aiosqlite:///./tradegod.db`
+   - `ALLOWED_ORIGINS`: `https://frontend-phi-snowy-59.vercel.app,https://tradegod.vercel.app,http://localhost:3000`
 6. Click **Create Web Service**.
 7. Once deployed, Render will provide your live Backend URL:
    `https://tradegod-backend.onrender.com`

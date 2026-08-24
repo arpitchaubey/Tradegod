@@ -126,3 +126,10 @@ async def send_test_alert():
                 return {"status": "error", "message": f"Telegram API returned {resp.status_code}: {resp.text}"}
         except Exception as e:
             return {"status": "error", "message": f"Failed to send Telegram alert: {str(e)}"}
+
+@router.get("/pipeline-status")
+async def get_pipeline_status():
+    """Retrieve real-time status of the full DATA -> BOT -> OMNI AI -> TELEGRAM pipeline."""
+    from app.bot.worker import omni_bot_worker
+    return omni_bot_worker.get_pipeline_status()
+

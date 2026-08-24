@@ -63,11 +63,9 @@ async def seed_initial_data(session: AsyncSession):
         if not broker:
             broker = DBBrokerAccount(
                 user_id=1,
-                broker_name="Paper Trading",
-                account_id="PAPER_10000",
+                mode="PAPER_TRADING",
                 balance=10000.0,
-                equity=10000.0,
-                is_active=1
+                equity=10000.0
             )
             session.add(broker)
             await session.commit()

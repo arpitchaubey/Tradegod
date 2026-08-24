@@ -2,90 +2,124 @@
 
 import React, { useState, useEffect } from "react";
 import { API_BASE, safeFetch } from "../utils/api";
-import { Bell, CheckCircle2, TrendingUp } from "lucide-react";
+import { TrendingUp, Bell, CheckCircle2, Zap } from "lucide-react";
 
 interface StatCardsRowProps {
   lastPrice?: number;
+  symbol?: string;
 }
 
-export default function StatCardsRow({ lastPrice }: StatCardsRowProps) {
+export default function StatCardsRow({ lastPrice, symbol = "XAU/USD" }: StatCardsRowProps) {
   const [stats, setStats] = useState<any>(null);
-
-  const fetchStats = () => {
-    safeFetch(`${API_BASE}/api/signals/stats`)
-      .then((res) => res.json())
-      .then((data) => {
-        if (data) setStats(data);
-      })
-      .catch((err) => console.warn("Error fetching signal stats:", err));
-  };
+  const [tick, setTick] = useState(false);
 
   useEffect(() => {
-    fetchStats();
-    const timer = setInterval(fetchStats, 1000);
-    return () => clearInterval(timer);
+    const fetch = () =>
+      safeFetch(`${API_BASE}/api/signals/stats`)
+        .then((r) => r.json())
+        .then((d) => { if (d) setStats(d); })
+        .catch(() => {});
+    fetch();
+    const t = setInterval(fetch, 2500);
+    return () => clearInterval(t);
   }, []);
 
+  // Subtle tick animation on price change
+  useEffect(() => {
+    if (!lastPrice) return;
+    setTick(true);
+    const t = setTimeout(() => setTick(false), 500);
+    return () => clearTimeout(t);
+  }, [lastPrice]);
+
   const totalAlerts = stats?.total_alerts ?? 0;
-  const rightPredictions = stats?.right_predictions ?? 0;
+  const wins = stats?.right_predictions ?? 0;
+  const winRate = stats?.win_rate_percent ?? 0;
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 font-sans">
-      {/* 1st Stat Card - Number of Alerts */}
-      <div className="bg-white border border-slate-200/80 rounded-2xl p-4 shadow-xs flex items-center justify-between">
-        <div className="flex items-center space-x-3.5">
-          <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center font-medium border border-blue-100">
-            <Bell className="w-4 h-4" />
-          </div>
-          <div>
-            <span className="text-[11px] text-slate-400 font-semibold block uppercase tracking-wider">
-              Number of Alerts
-            </span>
-            <div className="mt-0.5">
-              <span className="text-lg font-black text-slate-900 font-mono">
-                {totalAlerts} Alerts
-              </span>
-            </div>
-          </div>
-        </div>
-      </div>
+    <div
+      className="flex items-center gap-px rounded-xl overflow-hidden border text-sm"
+      style={{
+        background: "var(--bg-elevated)",
+        borderColor: "var(--border)",
+        boxShadow: "var(--shadow-sm)"
+      }}
+    >
+      {/* 1 — Spot price */}
+      <StatCell
+        icon={<TrendingUp className="w-3.5 h-3.5" style={{ color: "var(--accent)" }} strokeWidth={2} />}
+        label={symbol}
+        value={
+          <span
+            className="font-mono font-bold transition-all duration-200"
+            style={{
+              color: tick ? "var(--green)" : "var(--text)",
+              fontSize: "15px"
+            }}
+          >
+            {lastPrice ? `$${lastPrice.toLocaleString("en-US", { minimumFractionDigits: 2 })}` : "Live Feed"}
+          </span>
+        }
+      />
 
-      {/* 2nd Stat Card - Right Predictions */}
-      <div className="bg-white border border-slate-200/80 rounded-2xl p-4 shadow-xs flex items-center justify-between">
-        <div className="flex items-center space-x-3.5">
-          <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center font-medium border border-emerald-100">
-            <CheckCircle2 className="w-4 h-4" />
-          </div>
-          <div>
-            <span className="text-[11px] text-slate-400 font-semibold block uppercase tracking-wider">
-              Right Predictions
-            </span>
-            <div className="mt-0.5">
-              <span className="text-lg font-black text-slate-900 font-mono">
-                {rightPredictions} Win
-              </span>
-            </div>
-          </div>
-        </div>
-      </div>
+      <Div />
 
-      {/* 3rd Stat Card - Live Asset Price */}
-      <div className="bg-white border border-slate-200/80 rounded-2xl p-4 shadow-xs flex items-center justify-between">
-        <div className="flex items-center space-x-3.5">
-          <div className="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center font-medium border border-indigo-100">
-            <TrendingUp className="w-4 h-4" />
-          </div>
-          <div>
-            <span className="text-[11px] text-slate-400 font-semibold block uppercase tracking-wider">
-              Live Asset Price
+      {/* 2 — Bot status */}
+      <StatCell
+        icon={<span className="live-dot" />}
+        label="Omni Bot"
+        value={
+          <span className="font-semibold text-xs uppercase tracking-wide" style={{ color: "var(--green)" }}>
+            Auto-Scan
+          </span>
+        }
+      />
+
+      <Div />
+
+      {/* 3 — Alerts */}
+      <StatCell
+        icon={<Bell className="w-3.5 h-3.5" style={{ color: "var(--gold)" }} strokeWidth={2} />}
+        label="Alerts Sent"
+        value={
+          <span className="font-mono font-bold" style={{ fontSize: "15px" }}>{totalAlerts}</span>
+        }
+      />
+
+      <Div />
+
+      {/* 4 — Accuracy */}
+      <StatCell
+        icon={<CheckCircle2 className="w-3.5 h-3.5" style={{ color: "var(--green)" }} strokeWidth={2} />}
+        label="Accuracy"
+        value={
+          <span className="font-mono font-bold" style={{ fontSize: "15px", color: "var(--green)" }}>
+            {winRate.toFixed(1)}%
+            <span className="font-normal text-xs ml-1" style={{ color: "var(--text-muted)" }}>
+              ({wins}W)
             </span>
-            <div className="mt-0.5">
-              <span className="text-lg font-black text-slate-900 font-mono">
-                {lastPrice ? `$${lastPrice.toFixed(2)}` : "Syncing..."}
-              </span>
-            </div>
-          </div>
-        </div>
+          </span>
+        }
+      />
+    </div>
+  );
+}
+
+function Div() {
+  return <div className="self-stretch w-px" style={{ background: "var(--border)" }} />;
+}
+
+function StatCell({
+  icon, label, value
+}: { icon: React.ReactNode; label: string; value: React.ReactNode }) {
+  return (
+    <div className="flex items-center gap-2.5 px-4 py-2.5 flex-1 min-w-0">
+      <div className="shrink-0">{icon}</div>
+      <div className="min-w-0">
+        <p className="text-[10px] font-semibold uppercase tracking-wider truncate" style={{ color: "var(--text-faint)" }}>
+          {label}
+        </p>
+        <div className="mt-0.5">{value}</div>
       </div>
     </div>
   );

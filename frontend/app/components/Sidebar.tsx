@@ -1,135 +1,249 @@
 "use client";
 
 import React from "react";
+import * as Tooltip from "@radix-ui/react-tooltip";
 import {
-  Home,
+  LayoutDashboard,
   Brain,
   Send,
   Settings,
-  HelpCircle,
+  Sliders,
+  History,
+  Sparkles,
   LogOut,
-  Zap,
-  Sliders
+  LogIn,
+  Sun,
+  Moon,
+  HelpCircle
 } from "lucide-react";
-
 import { useAuth } from "../context/AuthContext";
-import { User as UserIcon, LogIn, ChevronRight, Sparkles } from "lucide-react";
+import { useTheme } from "../context/ThemeContext";
+import { cn } from "../lib/utils";
 
 interface SidebarProps {
   activeTab: string;
   setActiveTab: (tab: string) => void;
 }
 
+const navItems = [
+  { id: "dashboard", label: "Dashboard",         icon: LayoutDashboard },
+  { id: "omni",      label: "Omni AI Engine",    icon: Sparkles         },
+  { id: "strategy",  label: "Strategy Builder",  icon: Brain            },
+  { id: "backtest",  label: "Backtest Lab",       icon: History          },
+  { id: "telegram",  label: "Telegram Alerts",   icon: Send             },
+  { id: "settings",  label: "Settings",           icon: Settings         },
+];
+
+
+function NavBtn({
+  id, label, icon: Icon, isActive, onClick
+}: { id: string; label: string; icon: any; isActive: boolean; onClick: () => void }) {
+  return (
+    <Tooltip.Root delayDuration={150}>
+      <Tooltip.Trigger asChild>
+        <button
+          onClick={(e) => {
+            onClick();
+            (e.currentTarget as HTMLElement).blur();
+          }}
+          aria-label={label}
+          className={cn(
+            "relative w-10 h-10 flex items-center justify-center rounded-xl transition-all duration-150 group",
+            isActive
+              ? "bg-[var(--accent)] text-white shadow-sm"
+              : "text-[var(--text-faint)] hover:text-[var(--text)] hover:bg-[var(--bg-subtle)]"
+          )}
+        >
+          <Icon className="w-[18px] h-[18px]" strokeWidth={isActive ? 2.2 : 1.8} />
+          {isActive && (
+            <span className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 bg-[var(--accent)] rounded-r-full -ml-px" />
+          )}
+        </button>
+      </Tooltip.Trigger>
+      <Tooltip.Content
+        side="right"
+        sideOffset={12}
+        className="z-50 px-2.5 py-1.5 text-xs font-medium rounded-lg shadow-md"
+        style={{
+          background: "var(--bg-elevated)",
+          color: "var(--text)",
+          border: "1px solid var(--border)",
+          boxShadow: "var(--shadow-md)"
+        }}
+      >
+        {label}
+        <Tooltip.Arrow style={{ fill: "var(--bg-elevated)" }} />
+      </Tooltip.Content>
+    </Tooltip.Root>
+  );
+}
+
 export default function Sidebar({ activeTab, setActiveTab }: SidebarProps) {
   const { user, isAuthenticated, openAuthModal, openProfileModal, logout } = useAuth();
-
-  const navItems = [
-    { id: "dashboard", label: "Dashboard", icon: Home },
-    { id: "strategy", label: "AI Strategy Builder", icon: Brain },
-    { id: "bot", label: "Bot Control Panel", icon: Sliders },
-    { id: "telegram", label: "Telegram Alerts", icon: Send },
-    { id: "settings", label: "Settings", icon: Settings }
-  ];
+  const { theme, toggleTheme, isDark } = useTheme();
 
   return (
-    <aside className="w-64 bg-white border-r border-slate-200/80 p-6 flex flex-col justify-between shrink-0 h-full font-sans">
-      {/* Brand Logo */}
-      <div className="space-y-8">
-        <div className="flex items-center space-x-3">
-          <img
-            src="/tradegod-logo.png"
-            alt="TRADE GOD Logo"
-            className="w-10 h-10 rounded-full border border-amber-500/30 object-cover shadow-sm bg-slate-900"
-          />
-          <div>
-            <h1 className="text-base font-black text-slate-900 tracking-tight flex items-center gap-1">
-              <span>TRADE</span>
-              <span className="text-amber-600">GOD</span>
-            </h1>
-            <span className="text-[9px] text-amber-700/80 font-bold uppercase tracking-wider block">
-              Quantitative Insights
-            </span>
-          </div>
+    <Tooltip.Provider>
+      <aside
+        className="flex flex-col items-center justify-between w-[60px] shrink-0 h-full py-4 border-r"
+        style={{
+          background: "var(--bg-elevated)",
+          borderColor: "var(--border)"
+        }}
+      >
+        {/* TOP: Logo + Nav */}
+        <div className="flex flex-col items-center gap-5">
+          {/* Logo mark */}
+          <button
+            onClick={() => setActiveTab("dashboard")}
+            className="w-9 h-9 flex items-center justify-center rounded-xl overflow-hidden border-2 shrink-0 transition hover:scale-105"
+            style={{ borderColor: "var(--gold)" }}
+            aria-label="TradeGod Dashboard"
+          >
+            <img
+              src="/tradegod-logo.png"
+              alt="TRADEGOD"
+              className="w-full h-full object-cover"
+              onError={(e) => {
+                const t = e.target as HTMLImageElement;
+                t.style.display = "none";
+              }}
+            />
+            {/* Fallback if logo missing */}
+            <span className="text-[var(--gold)] font-black text-xs hidden">TG</span>
+          </button>
+
+          {/* Divider */}
+          <div className="w-6 h-px" style={{ background: "var(--border)" }} />
+
+          {/* Nav links */}
+          <nav className="flex flex-col items-center gap-1.5">
+            {navItems.map(({ id, label, icon }) => (
+              <NavBtn
+                key={id}
+                id={id}
+                label={label}
+                icon={icon}
+                isActive={activeTab === id}
+                onClick={() => setActiveTab(id)}
+              />
+            ))}
+          </nav>
         </div>
 
-        {/* Navigation Links */}
-        <nav className="space-y-1">
-          {navItems.map(({ id, label, icon: Icon }) => {
-            const isActive = activeTab === id;
-            return (
+        {/* BOTTOM: Theme toggle + User */}
+        <div className="flex flex-col items-center gap-2">
+          {/* Help */}
+          <Tooltip.Root delayDuration={200}>
+            <Tooltip.Trigger asChild>
               <button
-                key={id}
-                onClick={() => setActiveTab(id)}
-                className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs transition-all duration-150 ${
-                  isActive
-                    ? "bg-blue-600 text-white shadow-xs font-semibold"
-                    : "text-slate-600 hover:text-blue-600 hover:bg-blue-50/60 font-medium"
-                }`}
+                className="w-9 h-9 flex items-center justify-center rounded-xl transition hover:bg-[var(--bg-subtle)]"
+                style={{ color: "var(--text-faint)" }}
+                aria-label="Help"
               >
-                <div className="flex items-center space-x-3">
-                  <Icon className={`w-4 h-4 ${isActive ? "text-white" : "text-slate-400"}`} />
-                  <span>{label}</span>
-                </div>
-                {id === "strategy" && (
-                  <span className="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
+                <HelpCircle className="w-4 h-4" strokeWidth={1.8} />
+              </button>
+            </Tooltip.Trigger>
+            <Tooltip.Content side="right" sideOffset={12}
+              className="z-50 px-2.5 py-1.5 text-xs font-medium rounded-lg"
+              style={{ background: "var(--bg-elevated)", color: "var(--text)", border: "1px solid var(--border)" }}
+            >
+              Help & Docs
+            </Tooltip.Content>
+          </Tooltip.Root>
+
+          {/* Theme Toggle */}
+          <Tooltip.Root delayDuration={200}>
+            <Tooltip.Trigger asChild>
+              <button
+                onClick={toggleTheme}
+                className="w-9 h-9 flex items-center justify-center rounded-xl transition hover:bg-[var(--bg-subtle)]"
+                style={{ color: "var(--text-muted)" }}
+                aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}
+              >
+                {isDark ? (
+                  <Sun className="w-4 h-4" strokeWidth={1.8} />
+                ) : (
+                  <Moon className="w-4 h-4" strokeWidth={1.8} />
                 )}
               </button>
-            );
-          })}
-        </nav>
-      </div>
-
-      {/* Account Profile Footer */}
-      <div className="space-y-3 pt-3 border-t border-slate-100">
-        {isAuthenticated && user ? (
-          <button
-            onClick={openProfileModal}
-            className="w-full p-2.5 bg-slate-50 hover:bg-blue-50/70 border border-slate-200/80 hover:border-blue-200 rounded-2xl transition flex items-center justify-between text-left group"
-          >
-            <div className="flex items-center space-x-3 min-w-0">
-              <img
-                src={user.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.full_name)}&background=2563eb&color=fff`}
-                alt={user.full_name}
-                className="w-9 h-9 rounded-xl border border-blue-500/20 object-cover shrink-0"
-              />
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-1.5">
-                  <h4 className="text-xs font-bold text-slate-800 truncate group-hover:text-blue-600">{user.full_name}</h4>
-                  <span className="px-1.5 py-0.2 bg-blue-100 text-blue-700 text-[9px] font-bold rounded-md">
-                    {user.plan_tier || "PRO"}
-                  </span>
-                </div>
-                <p className="text-[10px] text-slate-400 truncate">{user.email}</p>
-              </div>
-            </div>
-            <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-blue-600 shrink-0" />
-          </button>
-        ) : (
-          <button
-            onClick={() => openAuthModal("login")}
-            className="w-full p-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-2xl shadow-md transition flex items-center justify-center space-x-2 text-xs font-semibold"
-          >
-            <LogIn className="w-4 h-4" />
-            <span>Sign In / Create Account</span>
-          </button>
-        )}
-
-        <div className="space-y-1 text-xs font-medium text-slate-500">
-          <button className="w-full flex items-center space-x-3 px-3 py-1.5 rounded-lg hover:bg-slate-100 transition text-[11px]">
-            <HelpCircle className="w-3.5 h-3.5 text-slate-400" />
-            <span>Help & documentation</span>
-          </button>
-          {isAuthenticated && (
-            <button
-              onClick={logout}
-              className="w-full flex items-center space-x-3 px-3 py-1.5 rounded-lg hover:bg-slate-100 transition text-rose-600 text-[11px]"
+            </Tooltip.Trigger>
+            <Tooltip.Content side="right" sideOffset={12}
+              className="z-50 px-2.5 py-1.5 text-xs font-medium rounded-lg"
+              style={{ background: "var(--bg-elevated)", color: "var(--text)", border: "1px solid var(--border)" }}
             >
-              <LogOut className="w-3.5 h-3.5" />
-              <span>Log out</span>
-            </button>
+              {isDark ? "Light mode" : "Dark mode"}
+            </Tooltip.Content>
+          </Tooltip.Root>
+
+          {/* User avatar / sign in */}
+          {isAuthenticated && user ? (
+            <Tooltip.Root delayDuration={200}>
+              <Tooltip.Trigger asChild>
+                <button
+                  onClick={openProfileModal}
+                  className="w-9 h-9 rounded-xl overflow-hidden border-2 transition hover:scale-105"
+                  style={{ borderColor: "var(--accent)" }}
+                  aria-label="Profile"
+                >
+                  <img
+                    src={user.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.full_name)}&background=2563eb&color=fff&size=64`}
+                    alt={user.full_name}
+                    className="w-full h-full object-cover"
+                  />
+                </button>
+              </Tooltip.Trigger>
+              <Tooltip.Content side="right" sideOffset={12}
+                className="z-50 px-2.5 py-1.5 text-xs font-medium rounded-lg"
+                style={{ background: "var(--bg-elevated)", color: "var(--text)", border: "1px solid var(--border)" }}
+              >
+                {user.full_name}
+              </Tooltip.Content>
+            </Tooltip.Root>
+          ) : (
+            <Tooltip.Root delayDuration={200}>
+              <Tooltip.Trigger asChild>
+                <button
+                  onClick={() => openAuthModal("login")}
+                  className="w-9 h-9 flex items-center justify-center rounded-xl transition"
+                  style={{ background: "var(--accent)", color: "white" }}
+                  aria-label="Sign in"
+                >
+                  <LogIn className="w-4 h-4" />
+                </button>
+              </Tooltip.Trigger>
+              <Tooltip.Content side="right" sideOffset={12}
+                className="z-50 px-2.5 py-1.5 text-xs font-medium rounded-lg"
+                style={{ background: "var(--bg-elevated)", color: "var(--text)", border: "1px solid var(--border)" }}
+              >
+                Sign in
+              </Tooltip.Content>
+            </Tooltip.Root>
+          )}
+
+          {/* Logout (only when logged in) */}
+          {isAuthenticated && (
+            <Tooltip.Root delayDuration={200}>
+              <Tooltip.Trigger asChild>
+                <button
+                  onClick={logout}
+                  className="w-9 h-9 flex items-center justify-center rounded-xl transition hover:bg-[var(--red-soft)]"
+                  style={{ color: "var(--text-faint)" }}
+                  aria-label="Log out"
+                >
+                  <LogOut className="w-4 h-4" strokeWidth={1.8} />
+                </button>
+              </Tooltip.Trigger>
+              <Tooltip.Content side="right" sideOffset={12}
+                className="z-50 px-2.5 py-1.5 text-xs font-medium rounded-lg"
+                style={{ background: "var(--bg-elevated)", color: "var(--red)", border: "1px solid var(--border)" }}
+              >
+                Log out
+              </Tooltip.Content>
+            </Tooltip.Root>
           )}
         </div>
-      </div>
-    </aside>
+      </aside>
+    </Tooltip.Provider>
   );
 }

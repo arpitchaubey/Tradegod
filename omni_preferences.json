@@ -1,0 +1,13 @@
+{
+  "preferred_lot_size": 0.1,
+  "min_profit_pips": 100.0,
+  "max_risk_percent": 2.0,
+  "min_confidence_score": 75,
+  "min_risk_reward_ratio": 1.5,
+  "entry_preference": "AI_ADAPTIVE",
+  "bot_active": true,
+  "telegram_notifications": true,
+  "notify_on_news_blackout": true,
+  "max_positions": 3,
+  "scan_interval_seconds": 15
+}

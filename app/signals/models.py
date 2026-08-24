@@ -21,10 +21,19 @@ class SignalPayload(BaseModel):
     symbol: str
     direction: str  # "BUY", "SELL", "NO_TRADE"
     entry_price: float
+    entry_market_price: Optional[float] = None
+    entry_limit_price: Optional[float] = None
+    entry_reachability_percent: Optional[int] = 100
+    entry_reachability_state: Optional[str] = "INSTANT_MARKET_FILL"
+    entry_distance_pips: Optional[float] = 0.0
     stop_loss: float
     take_profit_1: float
     take_profit_2: float
+    take_profit_3: Optional[float] = None
     risk_reward_ratio: float
+    min_profit_pips: Optional[float] = 30.0
+    expected_profit_pips: Optional[float] = 30.0
+    expected_profit_usd: Optional[float] = 0.0
     position_size_lots: float
     confidence_score: int
     timeframe: str = "5m"

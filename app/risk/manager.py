@@ -52,13 +52,14 @@ class RiskManager:
         atr_series = calculate_atr(current_df, 14)
         atr_val = float(atr_series.iloc[-1]) if not atr_series.empty else spec.pip_size * 20
 
-        # Calculate Stop Loss
+        # Calculate Stop Loss with volatility-aware buffer
+        sl_buffer = max(spec.pip_size * 5, atr_val * 0.4)
         if direction.upper() == "BUY":
             if sl_method == "structure":
                 _, swing_lows = find_swing_points(current_df, window=3)
                 if swing_lows:
                     recent_low = min([sl["price"] for sl in swing_lows[-3:]])
-                    sl = recent_low - (spec.pip_size * 2)
+                    sl = recent_low - sl_buffer
                 else:
                     sl = entry_price - (atr_val * 1.5)
             else:
@@ -68,7 +69,7 @@ class RiskManager:
                 swing_highs, _ = find_swing_points(current_df, window=3)
                 if swing_highs:
                     recent_high = max([sh["price"] for sh in swing_highs[-3:]])
-                    sl = recent_high + (spec.pip_size * 2)
+                    sl = recent_high + sl_buffer
                 else:
                     sl = entry_price + (atr_val * 1.5)
             else:
