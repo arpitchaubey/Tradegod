@@ -50,20 +50,34 @@ class OmniBotWorker:
                 pass
         logger.info("Omni Bot Autonomous Orchestrator stopped cleanly.")
 
+    async def _send_keep_alive_ping(self):
+        """Dispatches lightweight keep-alive heartbeat to keep cloud service active."""
+        if not settings.app_url:
+            return
+        try:
+            target_url = f"{settings.app_url.rstrip('/')}/"
+            async with httpx.AsyncClient(timeout=3.0) as client:
+                await client.get(target_url)
+        except Exception:
+            pass
+
     async def _run_loop(self):
-        """Continuous background execution loop."""
-        # Initial warmup delay
+        """Continuous background execution loop with keep-alive heartbeat."""
         await asyncio.sleep(3)
+        loop_count = 0
         while self._running:
             try:
                 await self.execute_cycle()
+                loop_count += 1
+                if loop_count % 12 == 0:
+                    asyncio.create_task(self._send_keep_alive_ping())
             except Exception as e:
                 logger.error(f"Error in Omni Bot execution cycle: {e}")
             
             await asyncio.sleep(self.scan_interval_seconds)
 
     async def execute_cycle(self):
-        """Executes a single end-to-end data -> omni engine -> bot -> telegram cycle."""
+        """Executes a single end-to-end data -> omni engine -> bot -> telegram cycle across watchlist."""
         from app.ai.preferences import omni_preferences_store
 
         user_prefs = omni_preferences_store.get_preferences()
@@ -88,9 +102,18 @@ class OmniBotWorker:
         if len(positions) >= user_prefs.max_positions:
             return
 
-        # 4. Scan primary active symbol (e.g. XAU/USD)
+        # 4. Scan multi-asset watchlist autonomously (Active Symbol + Major Forex & Gold)
         active_symbol = telegram_bot.active_symbol or settings.default_symbol
-        await self._evaluate_and_execute_symbol(active_symbol, user_prefs)
+        watchlist = [active_symbol]
+        for sym in ["XAU/USD", "EUR/USD", "GBP/USD", "BTC/USD", "ETH/USD"]:
+            if sym not in watchlist:
+                watchlist.append(sym)
+
+        for sym in watchlist:
+            curr_pos = await adapter.get_positions()
+            if len(curr_pos) >= user_prefs.max_positions:
+                break
+            await self._evaluate_and_execute_symbol(sym, user_prefs)
 
 
     async def _evaluate_and_execute_symbol(self, symbol: str, bot_settings: Any):

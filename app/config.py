@@ -23,6 +23,15 @@ class Settings(BaseSettings):
     news_filter_enabled: bool = True
     news_blackout_minutes: int = 15
     allowed_origins: str = "http://localhost:3000,http://127.0.0.1:3000,https://frontend-phi-snowy-59.vercel.app,https://tradegod.vercel.app"
+    
+    # SMTP Email Configuration
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+    smtp_from_email: str = "noreply@tradegod.ai"
+    smtp_use_tls: bool = True
+    app_url: str = "https://tradegod.onrender.com"
 
     model_config = SettingsConfigDict(
         env_file=".env",

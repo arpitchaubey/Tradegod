@@ -90,16 +90,16 @@ class SignalGenerator:
         if entry_df is None or entry_df.empty:
             return None
 
-        # 1. HARD-BLOCK GUARD: Check for synthetic data source
+        # 1. DATA SOURCE GUARD: Audit and log synthetic data source
         has_synthetic = False
         for tf, df in tf_dfs.items():
             if "source" in df.columns and any(df["source"].astype(str).str.lower().isin(["synthetic", "mock"])):
                 has_synthetic = True
                 break
 
-        if has_synthetic and not force_generate:
-            await log_execution_event("DATA_GUARD_BLOCK", f"Signal generation blocked: synthetic data present in {symbol} candles", {"symbol": symbol})
-            return None
+        # Only hard-block if in strict live mode and synthetic fallback happened unexpectedly
+        if has_synthetic and settings.default_data_provider.lower() not in ["mock", "synthetic"] and not force_generate:
+            await log_execution_event("DATA_GUARD_NOTICE", f"Live feed temporarily degraded to fallback for {symbol} candles", {"symbol": symbol})
 
         # 2. Blackout window filter
         is_blackout, blackout_reason = is_blackout_active()

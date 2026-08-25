@@ -9,12 +9,13 @@ import logging
 from app.database.connection import AsyncSessionLocal
 from app.database.models import DBUser
 from app.auth.security import hash_password, verify_password, create_access_token, decode_access_token
+from app.auth.email import email_service
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/auth", tags=["Authentication & User Profile"])
 
-# In-memory store for reset verification codes: email -> {"code": str, "expires_at": float}
+# In-memory store for reset verification codes: email -> {"code": str, "expires_at": float, "attempts": int, "requests": list[float]}
 _RESET_CODES: dict[str, dict] = {}
 
 class UserRegisterRequest(BaseModel):
@@ -129,7 +130,7 @@ async def login(req: UserLoginRequest):
 
 @router.post("/forgot-password")
 async def forgot_password(req: ForgotPasswordRequest):
-    """Generates a secure 6-digit password reset code for an existing user."""
+    """Generates a secure 6-digit password reset code and dispatches it to the user's email."""
     normalized_email = req.email.lower().strip()
     async with AsyncSessionLocal() as session:
         stmt = select(DBUser).where(DBUser.email == normalized_email)
@@ -139,21 +140,40 @@ async def forgot_password(req: ForgotPasswordRequest):
         if not user:
             raise HTTPException(status_code=404, detail="No account registered with this email address")
         
+        now = time.time()
+        existing_record = _RESET_CODES.get(normalized_email, {})
+        request_history = [t for t in existing_record.get("requests", []) if now - t < 900]
+        
+        # Rate limit: max 3 reset requests per 15 minutes
+        if len(request_history) >= 3:
+            raise HTTPException(
+                status_code=429, 
+                detail="Too many password reset requests. Please wait a few minutes before trying again."
+            )
+        
+        request_history.append(now)
+
         # Generate 6-digit numeric reset code
         code = "".join([str(secrets.randbelow(10)) for _ in range(6)])
-        # Valid for 15 minutes
+        
+        # Valid for 15 minutes, with brute-force attempt counter
         _RESET_CODES[normalized_email] = {
             "code": code,
-            "expires_at": time.time() + 900
+            "expires_at": now + 900,
+            "attempts": 0,
+            "requests": request_history
         }
         
-        logger.info(f"Password reset requested for {normalized_email}. Reset verification code: {code}")
+        logger.info(f"Password reset requested for {normalized_email}. Dispatching verification email.")
         
+        # Send OTP code asynchronously via email
+        await email_service.send_password_reset_otp(normalized_email, code)
+        
+        # SECURE RESPONSE: Never expose the OTP code to the client
         return {
             "status": "success",
-            "message": f"Password reset verification code generated for {normalized_email}",
-            "email": normalized_email,
-            "reset_code": code
+            "message": f"A 6-digit verification code has been sent to {normalized_email}. Please check your inbox.",
+            "email": normalized_email
         }
 
 @router.post("/reset-password")
@@ -173,8 +193,21 @@ async def reset_password(req: ResetPasswordRequest):
         _RESET_CODES.pop(normalized_email, None)
         raise HTTPException(status_code=400, detail="Reset code has expired. Please request a new code.")
     
+    # Increment failed attempts counter (Brute-force protection)
+    record["attempts"] = record.get("attempts", 0) + 1
+    if record["attempts"] > 5:
+        _RESET_CODES.pop(normalized_email, None)
+        raise HTTPException(
+            status_code=400, 
+            detail="Too many failed verification attempts. For your security, this code has been invalidated. Please request a new one."
+        )
+
     if record["code"] != provided_code:
-        raise HTTPException(status_code=400, detail="Invalid verification code. Please check and try again.")
+        remaining = max(0, 5 - record["attempts"])
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Invalid verification code. Please check and try again. ({remaining} attempts remaining)"
+        )
     
     # Code is valid - update password in database
     async with AsyncSessionLocal() as session:
@@ -189,7 +222,7 @@ async def reset_password(req: ResetPasswordRequest):
         await session.commit()
         await session.refresh(user)
         
-        # Invalidate used reset code
+        # Invalidate used reset code immediately
         _RESET_CODES.pop(normalized_email, None)
         
         token = create_access_token({"sub": str(user.id), "email": user.email})

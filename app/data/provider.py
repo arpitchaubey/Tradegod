@@ -146,7 +146,7 @@ class TwelveDataProvider(BaseDataProvider):
             "apikey": self.api_key
         }
 
-        async with httpx.AsyncClient(timeout=5.0) as client:
+        async with httpx.AsyncClient(timeout=2.0) as client:
             try:
                 resp = await client.get(f"{self.base_url}/time_series", params=params)
                 data = resp.json()
@@ -212,7 +212,7 @@ class YahooFinanceProvider(BaseDataProvider):
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         }
 
-        async with httpx.AsyncClient(timeout=5.0) as client:
+        async with httpx.AsyncClient(timeout=2.0) as client:
             try:
                 resp = await client.get(url, headers=headers)
                 if resp.status_code != 200:
@@ -287,7 +287,7 @@ class BinanceSpotProvider(BaseDataProvider):
         interval = tf_map.get(timeframe.lower(), "5m")
         url = f"https://api.binance.com/api/v3/klines?symbol={binance_symbol}&interval={interval}&limit={limit}"
 
-        async with httpx.AsyncClient(timeout=4.0) as client:
+        async with httpx.AsyncClient(timeout=2.0) as client:
             try:
                 resp = await client.get(url)
                 if resp.status_code != 200:

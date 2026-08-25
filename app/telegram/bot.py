@@ -34,6 +34,7 @@ class TelegramBot:
         self.app.add_handler(CommandHandler("status", self.cmd_status))
         self.app.add_handler(CommandHandler("symbol", self.cmd_symbol))
         self.app.add_handler(CommandHandler("analyze", self.cmd_analyze))
+        self.app.add_handler(CommandHandler("scan", self.cmd_scan))
         self.app.add_handler(CommandHandler("symbols", self.cmd_symbols))
         self.app.add_handler(CommandHandler("killswitch", self.cmd_killswitch))
         self.app.add_handler(CommandHandler("positions", self.cmd_positions))
@@ -78,7 +79,7 @@ class TelegramBot:
         await update.message.reply_text(
             "👋 Welcome to *TRADE GOD — Quantitative Insights Bot*!\n\n"
             "I analyze XAU/USD and other instruments using deterministic strategy rules and AI explanations.\n"
-            "Use /status to see current chart info, or /help to see all commands.",
+            "Use /status to see current chart info, /analyze to scan active symbol, /scan for full watchlist, or /help to see all commands.",
             parse_mode="Markdown"
         )
 
@@ -88,7 +89,8 @@ class TelegramBot:
             "/start - Start Bot & receive welcome briefing\n"
             "/help - Show command list & usage guide\n"
             "/status - View price, ADX, regime & engine status\n"
-            "/analyze [SYMBOL] - Run immediate signal analysis\n"
+            "/analyze [SYMBOL] - Run immediate signal analysis (<2s)\n"
+            "/scan - Scan full multi-asset watchlist in real time\n"
             "/symbol [SYMBOL] - Switch target instrument\n"
             "/symbols - List supported trading instruments\n"
             "/positions - View open trade positions with PnL\n"
@@ -214,16 +216,45 @@ class TelegramBot:
         )
         await update.message.reply_text(msg, parse_mode="Markdown")
 
+    async def cmd_scan(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Scans entire top-priority watchlist across XAU/USD, Crypto, and Forex in real time."""
+        symbols = ["XAU/USD", "EUR/USD", "GBP/USD", "BTC/USD", "ETH/USD"]
+        status_msg = await update.message.reply_text("⚡ *Scanning Multi-Asset Institutional Watchlist...*", parse_mode="Markdown")
+        
+        found = []
+        for sym in symbols:
+            try:
+                sig = await self.signal_generator.analyze_and_generate_signal(sym, force_generate=True)
+                if sig and sig.confidence_score >= 65:
+                    found.append(sig)
+            except Exception:
+                continue
+
+        if not found:
+            await update.message.reply_text("⚪ *Watchlist Scan Complete.* No high-confidence setups currently in active breakout.", parse_mode="Markdown")
+            return
+
+        for sig in found:
+            msg = format_telegram_signal(sig)
+            await update.message.reply_text(msg, parse_mode="Markdown")
+
     async def cmd_analyze(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         sym = context.args[0].upper() if context.args else self.active_symbol
-        await update.message.reply_text(f"🔍 Analyzing *{sym}* on 5M timeframe...", parse_mode="Markdown")
-        signal = await self.signal_generator.analyze_and_generate_signal(sym, force_generate=True)
-        if signal:
-            msg = format_telegram_signal(signal)
-            await update.message.reply_text(msg, parse_mode="Markdown")
-            await self.send_signal(signal)
-        else:
-            await update.message.reply_text(f"⚪ *{sym} — NO TRADE SETUP*\nNo valid setup detected at this time.", parse_mode="Markdown")
+        status_msg = await update.message.reply_text(f"🔍 Analyzing *{sym}* on 5M Multi-Timeframe Matrix...", parse_mode="Markdown")
+        try:
+            signal = await self.signal_generator.analyze_and_generate_signal(sym, force_generate=True)
+            if signal:
+                msg = format_telegram_signal(signal)
+                await update.message.reply_text(msg, parse_mode="Markdown")
+            else:
+                await update.message.reply_text(
+                    f"⚪ *{sym} — NO IMMEDIATE TRADE SETUP*\n"
+                    f"Market is currently consolidating or awaiting structural breakout confirmation.",
+                    parse_mode="Markdown"
+                )
+        except Exception as e:
+            logger.error(f"Error during Telegram analyze for {sym}: {e}")
+            await update.message.reply_text(f"⚠️ Analysis error for {sym}: `{str(e)}`", parse_mode="Markdown")
 
     async def send_signal(self, signal: SignalPayload) -> bool:
         """Sends formatted signal message to configured Telegram Chat ID if filters pass."""

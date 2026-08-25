@@ -97,15 +97,13 @@ export default function AuthModal() {
         throw new Error(data.detail || "Unable to request password reset");
       }
 
-      if (data.reset_code) {
-        setResetCode(data.reset_code);
-      }
-
-      setSuccessMsg(data.message || `Verification code sent for ${email}`);
+      // Security: Reset code is delivered exclusively via email, never prefilled
+      setResetCode("");
+      setSuccessMsg(data.message || `Verification code sent to ${email}. Please check your email.`);
       setTimeout(() => {
         setMode("reset");
         setErrorMsg("");
-      }, 900);
+      }, 1000);
     } catch (err: any) {
       setErrorMsg(err.message || "Failed to generate reset code");
     } finally {

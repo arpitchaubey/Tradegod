@@ -41,14 +41,17 @@ async def test_auth_full_lifecycle():
         assert me_resp.json()["user"]["email"] == test_email
 
         # 4. Request password reset (Forgot Password)
+        from app.api.routes_auth import _RESET_CODES
         forgot_resp = await client.post("/api/auth/forgot-password", json={
             "email": test_email
         })
         assert forgot_resp.status_code == 200
         forgot_data = forgot_resp.json()
         assert forgot_data["status"] == "success"
-        assert "reset_code" in forgot_data
-        reset_code = forgot_data["reset_code"]
+        # SECURITY TEST: Ensure reset_code is NEVER leaked in HTTP response
+        assert "reset_code" not in forgot_data
+        assert test_email in _RESET_CODES
+        reset_code = _RESET_CODES[test_email]["code"]
         assert len(reset_code) == 6
 
         # 4b. Forgot password for unknown user
