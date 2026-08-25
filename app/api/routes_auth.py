@@ -144,8 +144,8 @@ async def forgot_password(req: ForgotPasswordRequest):
         existing_record = _RESET_CODES.get(normalized_email, {})
         request_history = [t for t in existing_record.get("requests", []) if now - t < 900]
         
-        # Rate limit: max 3 reset requests per 15 minutes
-        if len(request_history) >= 3:
+        # Rate limit: max 5 reset requests per 15 minutes
+        if len(request_history) >= 5:
             raise HTTPException(
                 status_code=429, 
                 detail="Too many password reset requests. Please wait a few minutes before trying again."

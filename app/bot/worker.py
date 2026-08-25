@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import httpx
 from datetime import datetime, timezone
 from typing import Dict, Any, Optional, List
 
@@ -310,19 +311,17 @@ async def adapter_place_position(
     lot_size: float,
     alert_id: str
 ):
-    """Helper to place a position in the active execution manager."""
-    from app.execution.models import ExecutionOrderRequest
-    order = ExecutionOrderRequest(
+    """Helper to place a position in the active execution manager adapter."""
+    adapter = execution_manager.get_active_adapter()
+    return await adapter.place_order(
         symbol=symbol,
         direction=direction,
-        order_type="LIMIT",
-        lot_size=lot_size,
         entry_price=entry_price,
         stop_loss=stop_loss,
         take_profit_1=take_profit_1,
         take_profit_2=take_profit_2,
+        size_lots=lot_size,
         alert_id=alert_id
     )
-    return await execution_manager.execute_order(order)
 
 omni_bot_worker = OmniBotWorker()

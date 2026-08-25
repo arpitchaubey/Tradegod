@@ -16,13 +16,20 @@ class EmailService:
     """
 
     @classmethod
-    def _send_sync(cls, to_email: str, subject: str, html_content: str, text_content: str) -> bool:
+    def _send_sync(cls, to_email: str, subject: str, html_content: str, text_content: str, otp_code: Optional[str] = None) -> bool:
         if not settings.smtp_host or not settings.smtp_user:
-            logger.info(
-                f"ℹ️ [MOCK/DEV EMAIL DISPATCH] SMTP server not configured in .env. "
-                f"Simulated email sent to '{to_email}' with subject: '{subject}'. "
-                f"(To enable live delivery, configure SMTP_HOST, SMTP_USER, SMTP_PASSWORD in .env)"
+            code_msg = f"🔑 DEV OTP VERIFICATION CODE FOR [{to_email}]: {otp_code}\n" if otp_code else ""
+            print(
+                f"\n{'='*70}\n"
+                f"📧 [TRADEGOD EMAIL DISPATCH]\n"
+                f"To: {to_email}\n"
+                f"Subject: {subject}\n"
+                f"{code_msg}"
+                f"ℹ️ (To send live emails to your real inbox, add SMTP_HOST, SMTP_USER, SMTP_PASSWORD in .env)\n"
+                f"{'='*70}\n",
+                flush=True
             )
+            logger.info(f"Simulated email sent to '{to_email}' with subject: '{subject}'.")
             return False
 
         try:
@@ -56,9 +63,9 @@ class EmailService:
             return False
 
     @classmethod
-    async def send_email(cls, to_email: str, subject: str, html_content: str, text_content: str) -> bool:
+    async def send_email(cls, to_email: str, subject: str, html_content: str, text_content: str, otp_code: Optional[str] = None) -> bool:
         """Asynchronously dispatches email in a thread pool without blocking the async event loop."""
-        return await asyncio.to_thread(cls._send_sync, to_email, subject, html_content, text_content)
+        return await asyncio.to_thread(cls._send_sync, to_email, subject, html_content, text_content, otp_code)
 
     @classmethod
     async def send_password_reset_otp(cls, to_email: str, otp_code: str) -> bool:
@@ -120,6 +127,6 @@ class EmailService:
 </body>
 </html>
 """
-        return await cls.send_email(to_email, subject, html_content, text_content)
+        return await cls.send_email(to_email, subject, html_content, text_content, otp_code=otp_code)
 
 email_service = EmailService()

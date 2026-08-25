@@ -36,6 +36,7 @@ export default function AuthModal() {
   const [errorMsg, setErrorMsg] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
   const [loading, setLoading] = useState(false);
+  const [resendCooldown, setResendCooldown] = useState(0);
 
   // Sync mode if changed from context
   React.useEffect(() => {
@@ -44,7 +45,48 @@ export default function AuthModal() {
     setSuccessMsg("");
   }, [authModalMode, isAuthModalOpen]);
 
+  // Resend cooldown timer countdown
+  React.useEffect(() => {
+    if (resendCooldown <= 0) return;
+    const timer = setInterval(() => {
+      setResendCooldown((prev) => Math.max(0, prev - 1));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [resendCooldown]);
+
   if (!isAuthModalOpen) return null;
+
+  const handleResendCode = async () => {
+    if (resendCooldown > 0 || loading) return;
+    if (!email) {
+      setErrorMsg("Please enter your email address");
+      return;
+    }
+    setErrorMsg("");
+    setSuccessMsg("");
+    setLoading(true);
+
+    try {
+      const res = await safeFetch(`${API_BASE}/api/auth/forgot-password`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email })
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.detail || "Unable to resend verification code");
+      }
+
+      setResetCode("");
+      setSuccessMsg("✨ A new 6-digit verification code has been dispatched to your email.");
+      setResendCooldown(30);
+    } catch (err: any) {
+      setErrorMsg(err.message || "Failed to resend verification code");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleLoginOrSignup = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -483,14 +525,23 @@ export default function AuthModal() {
               )}
             </button>
 
-            <div className="pt-2 text-center">
+            <div className="pt-2 flex items-center justify-between">
+              <button
+                type="button"
+                onClick={handleResendCode}
+                disabled={resendCooldown > 0 || loading}
+                className="text-[11px] text-blue-400 hover:text-blue-300 disabled:text-zinc-500 transition inline-flex items-center gap-1.5 cursor-pointer disabled:cursor-not-allowed"
+              >
+                <RefreshCw className={`w-3 h-3 ${loading ? "animate-spin" : ""}`} />
+                <span>{resendCooldown > 0 ? `Resend code in ${resendCooldown}s` : "Resend verification code"}</span>
+              </button>
+
               <button
                 type="button"
                 onClick={() => { setMode("forgot"); setErrorMsg(""); setSuccessMsg(""); }}
-                className="text-[11px] text-zinc-500 hover:text-zinc-300 transition inline-flex items-center gap-1"
+                className="text-[11px] text-zinc-500 hover:text-zinc-300 transition cursor-pointer"
               >
-                <RefreshCw className="w-3 h-3" />
-                <span>Resend verification code</span>
+                Change email
               </button>
             </div>
           </form>
