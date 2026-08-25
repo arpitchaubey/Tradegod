@@ -208,7 +208,7 @@ class OmniBotWorker:
                 pnl_dollars = (current_price - entry_p) * 100 * float(p.get("size_lots", 0.1)) if direction == "BUY" else (entry_p - current_price) * 100 * float(p.get("size_lots", 0.1))
 
                 # Close position
-                await adapter.close_position(pos_id or sym)
+                await adapter.close_position(pos_id or sym, exit_price=current_price)
 
                 # Feed result into Omni Self-Learning Feedback Engine
                 feedback_engine.record_trade_outcome(

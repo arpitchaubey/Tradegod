@@ -2,12 +2,20 @@ from fastapi import APIRouter, HTTPException, Depends, Header
 from pydantic import BaseModel, EmailStr
 from typing import Optional
 from sqlalchemy import select
+import secrets
+import time
+import logging
 
 from app.database.connection import AsyncSessionLocal
 from app.database.models import DBUser
 from app.auth.security import hash_password, verify_password, create_access_token, decode_access_token
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/api/auth", tags=["Authentication & User Profile"])
+
+# In-memory store for reset verification codes: email -> {"code": str, "expires_at": float}
+_RESET_CODES: dict[str, dict] = {}
 
 class UserRegisterRequest(BaseModel):
     email: EmailStr
@@ -17,6 +25,14 @@ class UserRegisterRequest(BaseModel):
 class UserLoginRequest(BaseModel):
     email: EmailStr
     password: str
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+class ResetPasswordRequest(BaseModel):
+    email: EmailStr
+    reset_code: str
+    new_password: str
 
 class ProfileUpdateRequest(BaseModel):
     full_name: Optional[str] = None
@@ -101,6 +117,88 @@ async def login(req: UserLoginRequest):
         token = create_access_token({"sub": str(user.id), "email": user.email})
         
         return {
+            "token": token,
+            "user": {
+                "id": user.id,
+                "email": user.email,
+                "full_name": user.full_name,
+                "plan_tier": user.plan_tier,
+                "avatar_url": user.avatar_url
+            }
+        }
+
+@router.post("/forgot-password")
+async def forgot_password(req: ForgotPasswordRequest):
+    """Generates a secure 6-digit password reset code for an existing user."""
+    normalized_email = req.email.lower().strip()
+    async with AsyncSessionLocal() as session:
+        stmt = select(DBUser).where(DBUser.email == normalized_email)
+        res = await session.execute(stmt)
+        user = res.scalar_one_or_none()
+        
+        if not user:
+            raise HTTPException(status_code=404, detail="No account registered with this email address")
+        
+        # Generate 6-digit numeric reset code
+        code = "".join([str(secrets.randbelow(10)) for _ in range(6)])
+        # Valid for 15 minutes
+        _RESET_CODES[normalized_email] = {
+            "code": code,
+            "expires_at": time.time() + 900
+        }
+        
+        logger.info(f"Password reset requested for {normalized_email}. Reset verification code: {code}")
+        
+        return {
+            "status": "success",
+            "message": f"Password reset verification code generated for {normalized_email}",
+            "email": normalized_email,
+            "reset_code": code
+        }
+
+@router.post("/reset-password")
+async def reset_password(req: ResetPasswordRequest):
+    """Verifies reset code and updates password, returning authenticated user session."""
+    normalized_email = req.email.lower().strip()
+    provided_code = req.reset_code.strip()
+    
+    if len(req.new_password) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+    
+    record = _RESET_CODES.get(normalized_email)
+    if not record:
+        raise HTTPException(status_code=400, detail="No active password reset request found. Please request a new code.")
+    
+    if time.time() > record["expires_at"]:
+        _RESET_CODES.pop(normalized_email, None)
+        raise HTTPException(status_code=400, detail="Reset code has expired. Please request a new code.")
+    
+    if record["code"] != provided_code:
+        raise HTTPException(status_code=400, detail="Invalid verification code. Please check and try again.")
+    
+    # Code is valid - update password in database
+    async with AsyncSessionLocal() as session:
+        stmt = select(DBUser).where(DBUser.email == normalized_email)
+        res = await session.execute(stmt)
+        user = res.scalar_one_or_none()
+        
+        if not user:
+            raise HTTPException(status_code=404, detail="User account not found")
+        
+        user.hashed_password = hash_password(req.new_password)
+        await session.commit()
+        await session.refresh(user)
+        
+        # Invalidate used reset code
+        _RESET_CODES.pop(normalized_email, None)
+        
+        token = create_access_token({"sub": str(user.id), "email": user.email})
+        
+        logger.info(f"Password successfully reset for user {normalized_email}")
+        
+        return {
+            "status": "success",
+            "message": "Password reset successfully! You are now logged in.",
             "token": token,
             "user": {
                 "id": user.id,

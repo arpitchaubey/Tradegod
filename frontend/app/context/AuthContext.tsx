@@ -11,6 +11,8 @@ export interface User {
   avatar_url?: string;
 }
 
+export type AuthModalMode = "login" | "signup" | "forgot" | "reset";
+
 interface AuthContextType {
   user: User | null;
   token: string | null;
@@ -19,10 +21,10 @@ interface AuthContextType {
   login: (data: any) => void;
   logout: () => void;
   updateUser: (updated: Partial<User>) => void;
-  openAuthModal: (mode?: "login" | "signup") => void;
+  openAuthModal: (mode?: AuthModalMode) => void;
   closeAuthModal: () => void;
   isAuthModalOpen: boolean;
-  authModalMode: "login" | "signup";
+  authModalMode: AuthModalMode;
   openProfileModal: () => void;
   closeProfileModal: () => void;
   isProfileModalOpen: boolean;
@@ -36,7 +38,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState<boolean>(true);
   
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
-  const [authModalMode, setAuthModalMode] = useState<"login" | "signup">("login");
+  const [authModalMode, setAuthModalMode] = useState<AuthModalMode>("login");
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
 
   useEffect(() => {
@@ -101,7 +103,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const openAuthModal = (mode: "login" | "signup" = "login") => {
+  const openAuthModal = (mode: AuthModalMode = "login") => {
     setAuthModalMode(mode);
     setIsAuthModalOpen(true);
   };
